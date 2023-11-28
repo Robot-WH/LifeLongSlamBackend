@@ -1,0 +1,9 @@
+database_path: "/home/lwh/SlamDataBase"
+optimizer:
+    type: "g2o"
+loop_detect:
+    evaluate:  # 闭环评估
+        score_thresh: 0.15   
+        overlap_thresh: 0.8
+        high_thresh: 
+        min_score: 0.1
