@@ -447,7 +447,7 @@ public:
             pcl::transformPointCloud (origin_points, trans_points, pose.matrix()); // 转到世界坐标  
             *map += trans_points; 
         }
-        
+
         local_map = map;  
         return true;  
     }
@@ -475,7 +475,10 @@ public:
      * @param index
      */            
     inline bool SearchVertexPose(uint32_t const& index, Eigen::Isometry3d &pose) const {
-        if (vertex_container_.size() <= index) return false;
+        if (vertex_container_.size() <= index) {
+            return false;
+        }
+        
         pose = vertex_container_[index].pose_;
         return true;  
     }

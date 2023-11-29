@@ -37,6 +37,7 @@ std::vector<ros::Publisher> pubLocalMapEdge;    // 发布每个激光提取的�
 std::vector<ros::Publisher> pubLocalMapSurf;    // 发布每个激光提取的平面特征
 ros::Publisher markers_pub; // 可视化
 ros::Publisher odom_to_map_pub;   
+ros::Publisher localizeMap_pub;  
 ros::ServiceServer save_data_server;   // 数据保存服务
 ros::ServiceServer save_map_server;  // 地图保存服务 
 ros::Subscriber keyframe_sub; 
@@ -59,6 +60,7 @@ bool SaveMapService(lifelong_backend::SaveMapRequest& req, lifelong_backend::Sav
 void pubMarkers(const lifelong_backend::KeyFrameInfo<PointT>& info);
 void keyframeCallback(const lwio::keyframe_info& info);
 void pubOdomToMap(const Eigen::Isometry3d& odom_to_map);
+void pubLocalizeMap(const pcl::PointCloud<PointT>::Ptr& map);  
 
 void InitComm(ros::NodeHandle &private_nh) {
     // for (uint16_t i = 0; i < NUM_OF_LIDAR; i++)
@@ -79,6 +81,7 @@ void InitComm(ros::NodeHandle &private_nh) {
     // }
     markers_pub = private_nh.advertise<visualization_msgs::MarkerArray>("/graph_markers", 10);        // 可视化
     odom_to_map_pub = private_nh.advertise<nav_msgs::Odometry>("/odom_to_map", 10);   
+    localizeMap_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/localize_map", 10);   
     save_data_server = private_nh.advertiseService("/SaveGraph", &SaveDataService);
     save_map_server = private_nh.advertiseService("/SaveMap", &SaveMapService);
     keyframe_sub = private_nh.subscribe("/keyframe_info", 1000, &keyframeCallback,
@@ -86,6 +89,7 @@ void InitComm(ros::NodeHandle &private_nh) {
     // 进程内通信
     IPC::Server::Instance().Subscribe("keyframes_info", &pubMarkers);  
     IPC::Server::Instance().Subscribe("odom_to_map", &pubOdomToMap);  
+    IPC::Server::Instance().Subscribe("localize_map", &pubLocalizeMap);  
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -337,6 +341,20 @@ void pubOdomToMap(const Eigen::Isometry3d& odom_to_map) {
     odom_to_map_msg.pose.pose.orientation.y = quat.y();
     odom_to_map_msg.pose.pose.orientation.z = quat.z();
     odom_to_map_pub.publish(odom_to_map_msg);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief 发布定位点云可视化 
+*/
+void pubLocalizeMap(const pcl::PointCloud<PointT>::Ptr& map) {
+    sensor_msgs::PointCloud2 laserCloudTemp;
+    if (localizeMap_pub.getNumSubscribers() != 0) {
+        pcl::toROSMsg(*map, laserCloudTemp);
+        laserCloudTemp.header.stamp = ros::Time::now();;
+        laserCloudTemp.header.frame_id = "map";
+        localizeMap_pub.publish(laserCloudTemp);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -306,7 +306,7 @@ protected:
         float yaw_diff_rad = deg2rad(nn_align * sc_.PC_UNIT_SECTORANGLE_);      // yaw角的差
         relpose.translation() = Eigen::Vector3d(0, 0, 0);
         Eigen::Matrix3d rot;
-        rot = Eigen::AngleAxisd(yaw_diff_rad, Eigen::Vector3d::UnitZ()) 
+        rot = Eigen::AngleAxisd(-yaw_diff_rad, Eigen::Vector3d::UnitZ()) 
                     * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) 
                     * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitX());
         relpose.linear() = rot;  

@@ -20,7 +20,7 @@
 
 namespace lifelong_backend {
 
-#define LOOP_DEBUG 0
+#define LOOP_DEBUG 1
 
 struct LoopDetectionOption {
     double score_thresh;
@@ -96,7 +96,10 @@ public:
         SlamLib::time::TicToc tt; 
         // step1 先识别出相似帧  
         std::pair<int64_t, Eigen::Isometry3d> res = scene_recognizer_.FindSimilarPointCloud(scan_in);  
-        if (res.first == -1) return res; 
+        
+        if (res.first == -1) {
+            return res; 
+        }
         // step2 采用粗匹配 + 细匹配模式求解出位姿
         PoseGraphDataBase& poseGraph_database = PoseGraphDataBase::GetInstance(); 
         std::unordered_map<std::string, typename pcl::PointCloud<_PointType>::ConstPtr> owned_localmap;  
@@ -104,23 +107,29 @@ public:
         for (auto const& name : rough_registration_specific_labels_) {   
             // 从数据库中查找 名字为 name 的点云 
             typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
+            
             if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(res.first, 5, name, local_map)) {
-                LOG(WARNING) << SlamLib::color::RED<<"ERROR: find local map !"<< name <<SlamLib::color::RESET;
+                LOG(WARNING) << SlamLib::color::RED<<"ERROR: find local map !"<< 
+                    name <<SlamLib::color::RESET;
                 res.first = -1;
                 return res;  
             }
+            
             rough_registration_->SetInputSource(std::make_pair(name, local_map)); 
             owned_localmap[name] = local_map; 
         }
+
         rough_registration_->SetInputTarget(scan_in);
         // 当前帧位姿转换到世界系下
         Eigen::Isometry3d historical_pose;
+
         if (!poseGraph_database.SearchVertexPose(res.first, historical_pose)) {
             LOG(WARNING) << SlamLib::color::RED << "ERROR: not find historical pose "
                 << SlamLib::color::RESET;
             res.first = -1;
             return res;  
         }
+
         res.second = historical_pose * res.second;  
         // 回环first的点云
         if (!rough_registration_->Solve(res.second)) {
@@ -140,18 +149,23 @@ public:
                     res.first = -1;
                     return res;  
                 }
+
                 owned_localmap[name] = local_map; 
             }
+
             refine_registration_->SetInputSource(std::make_pair(name, local_map));  
         }
+
         refine_registration_->SetInputTarget(scan_in);
+
         if (!refine_registration_->Solve(res.second)) {
             res.first = -1;
             return res;  
         }
         // step3 检验   
         typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
-        std::string required_name = "processed";    // 获取检验模块需要的点云标识名
+        std::string required_name = "filtered";    // 获取检验模块需要的点云标识名
+        
         if (owned_localmap.find(required_name) != owned_localmap.end()) {
             local_map = owned_localmap[required_name];  
         } else {  // 如果之前没有构造出 POINTS_PROCESSED_NAME 的local map 那么这里构造
@@ -161,6 +175,7 @@ public:
                 return res;  
             }
         }
+        
         align_evaluator_.SetTargetPoints(local_map); 
         std::pair<double, double> eva = align_evaluator_.AlignmentScore(scan_in.at(required_name), 
                                                                                                                 res.second.matrix().cast<float>(), 0.1, 0.6); 
@@ -170,6 +185,7 @@ public:
             res.first = -1;
             return res;  
         }
+
         LOG(INFO) << SlamLib::color::GREEN << "relocalization success!";
         LOG(INFO) << "score: " << eva.first << SlamLib::color::RESET;
         return res;  
@@ -322,7 +338,9 @@ protected:
                     Eigen::Isometry3d historical_pose;
                     poseGraph_database.SearchVertexPose(res.first, historical_pose);
                     res.second = historical_pose * res.second;    // 位姿初始值
+                    std::cout << "回环的预测位姿： " << std::endl << res.second.matrix() << std::endl;
                 }
+                Eigen::Isometry3d origin_T = res.second;  
                 // 粗匹配
                 std::unordered_map<std::string, typename pcl::PointCloud<_PointType>::ConstPtr> localmaps;  
                 FeatureContainer  curr_scans; 
@@ -366,7 +384,6 @@ protected:
                 /**
                  * @todo 简单判断粗匹配的质量
                  */
-
                 // 将细匹配所需要的点云提取出来 
                 for (auto const& name : refine_registration_specific_labels_) {
                     typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
@@ -442,20 +459,24 @@ protected:
                     OVERLAP_THRESH_); 
                 std::cout << SlamLib::color::GREEN << "loop refine match converged, score: " 
                     << eva.first << std::endl;
-                
+                std::cout << "回环的匹配位姿： " << std::endl << res.second.matrix() << std::endl;
+
                 if (eva.first > MIN_SCORE_) {
+                    // 对回环匹配失败的进行可视化检测
+                    #if (LOOP_DEBUG == 1)
+                        // 检测回环匹配是否准确  
+                        static uint16_t ind = 0; 
+                        typename pcl::PointCloud<_PointType>::Ptr res_points(
+                            new pcl::PointCloud<_PointType>());
+                        pcl::PointCloud<_PointType> input_transformed;
+                        // cloud 通过  relpose 转到  input_transformed  
+                        pcl::transformPointCloud (*curr_scans["filtered"], input_transformed, origin_T.matrix());
+                        *res_points = *localmaps["filtered"]; 
+                        *res_points += input_transformed;
+                        pcl::io::savePCDFileBinary("/home/lwh/loop_res_" + std::to_string(ind++) + ".pcd", *res_points);
+                    #endif
                     continue;  
                 }
-
-                #if (LOOP_DEBUG == 1)
-                    // 检测回环匹配是否准确  
-                    static uint16_t ind = 0; 
-                    typename pcl::PointCloud<_PointType>::Ptr res_points(new pcl::PointCloud<_PointType>());
-                    *res_points = *local_map + *aligned; 
-                    pcl::io::savePCDFileBinary("/home/lwh/code/lwh_ws-master/src/liv_slam-master/slam_data/point_cloud/loop_res_"
-                                                                            + std::to_string(ind++) + ".pcd"
-                                                                                , *res_points);
-                #endif
                 // 添加新增回环边
                 Edge new_loop; 
                 new_loop.link_id_.first = res.first;
