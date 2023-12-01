@@ -3,7 +3,7 @@ optimizer:
     type: "g2o"
 loop_detect:
     evaluate:  # 闭环评估
-        score_thresh: 0.15   
-        overlap_thresh: 0.8
+        score_thresh: 0.3 
+        overlap_thresh: 0.7
         high_thresh: 
-        min_score: 0.1
+        min_score: 0.15

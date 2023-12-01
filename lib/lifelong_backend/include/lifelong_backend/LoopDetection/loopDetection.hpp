@@ -17,17 +17,13 @@
 #include "../pose_graph_database.hpp"
 #include "../Common/keyframe.hpp"
 #include "SceneRecognitionScanContext.hpp"
-
 namespace lifelong_backend {
-
 #define LOOP_DEBUG 1
-
 struct LoopDetectionOption {
     double score_thresh;
     double overlap_thresh;
     double min_score;  
 };
-
 /**
  * @brief: 基于雷达的闭环检测 - 1、先验位姿检测   2、点云描述子检测 
  *@param _PointType 回环时进行点云匹配的点类型 
@@ -64,10 +60,6 @@ public:
         rough_registration_specific_labels_ = rough_registration_->GetUsedPointsName();
         refine_registration_specific_labels_ = refine_registration_->GetUsedPointsName();
 
-        // for (auto name : rough_registration_specific_labels_) {
-        //     std::cout << "闭环粗匹配name: " << name << std::endl;
-        // }
-
         evaluative_pointcloud_label_ = "filtered";
     }
 
@@ -102,21 +94,21 @@ public:
         }
         // step2 采用粗匹配 + 细匹配模式求解出位姿
         PoseGraphDataBase& poseGraph_database = PoseGraphDataBase::GetInstance(); 
-        std::unordered_map<std::string, typename pcl::PointCloud<_PointType>::ConstPtr> owned_localmap;  
+        std::unordered_map<std::string, typename pcl::PointCloud<_PointType>::ConstPtr> localmaps;  
         // 将粗匹配所需要的点云local map 提取出来 
         for (auto const& name : rough_registration_specific_labels_) {   
             // 从数据库中查找 名字为 name 的点云 
             typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
             
             if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(res.first, 5, name, local_map)) {
-                LOG(WARNING) << SlamLib::color::RED<<"ERROR: find local map !"<< 
+                LOG(WARNING) << SlamLib::color::RED<<"Relocalization() error: can't find local map,name: "<< 
                     name <<SlamLib::color::RESET;
                 res.first = -1;
                 return res;  
             }
             
             rough_registration_->SetInputSource(std::make_pair(name, local_map)); 
-            owned_localmap[name] = local_map; 
+            localmaps[name] = local_map; 
         }
 
         rough_registration_->SetInputTarget(scan_in);
@@ -141,8 +133,8 @@ public:
         for (auto const& name : refine_registration_specific_labels_) {
             typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
             // 如果 细匹配所需要的local map 在之前粗匹配时  已经提取了
-            if (owned_localmap.find(name) != owned_localmap.end()) {
-                local_map = owned_localmap[name];  
+            if (localmaps.find(name) != localmaps.end()) {
+                local_map = localmaps[name];  
             } else {
                 if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(
                         res.first, 5, name, local_map)) {
@@ -150,7 +142,7 @@ public:
                     return res;  
                 }
 
-                owned_localmap[name] = local_map; 
+                localmaps[name] = local_map; 
             }
 
             refine_registration_->SetInputSource(std::make_pair(name, local_map));  
@@ -166,8 +158,8 @@ public:
         typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
         std::string required_name = "filtered";    // 获取检验模块需要的点云标识名
         
-        if (owned_localmap.find(required_name) != owned_localmap.end()) {
-            local_map = owned_localmap[required_name];  
+        if (localmaps.find(required_name) != localmaps.end()) {
+            local_map = localmaps[required_name];  
         } else {  // 如果之前没有构造出 POINTS_PROCESSED_NAME 的local map 那么这里构造
             if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(
                     res.first, 5, required_name, local_map)) {
@@ -234,11 +226,11 @@ public:
                                                                 uint16_t const& max_search_num, std::vector<int> &search_ind,
                                                                 std::vector<float> &search_dis) {   
         // 检查是否需要更新位置点云   确保包含历史所有节点的位置信息
-        if (kdtree_size_ != PoseGraphDataBase::GetInstance().ReadVertexNum()) {  
+        if (last_keyframe_position_kdtree_size_ != PoseGraphDataBase::GetInstance().ReadVertexNum()) {  
             pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
                 PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud();  
             kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
-            kdtree_size_ = keyframe_position_cloud->size();
+            last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
         }
 
         if (max_search_dis <= 0) {
@@ -266,81 +258,133 @@ protected:
                 std::this_thread::sleep_for(dura);
                 continue;  
             }
-            // 每隔1s 进行一次回环检测，且本次回环检测至少与上一个回环相距3个帧  避免回环过于密集
-            if (curr_keyframe_.time_stamp_ - last_detect_time_ > DETECT_TIME_INTERVAL_
-                    && curr_keyframe_.id_ - last_detect_id_ > DETECT_FRAME_INTERVAL_) {   
+            // 回环频率控制 
+            if (curr_keyframe_.id_ - last_detect_id_ > DETECT_FRAME_INTERVAL_) {   
                 SlamLib::time::TicToc tt;  
-                last_detect_time_ = curr_keyframe_.time_stamp_;
                 last_detect_id_ = curr_keyframe_.id_;  
                 // 机器人位置点云 
+                static pcl::PointCloud<pcl::PointXYZ>::Ptr last_keyframe_position_cloud(nullptr);
                 pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
                     poseGraph_database.GetKeyFramePositionCloud();  
 
-                if (keyframe_position_cloud->size() < MIN_LOOP_FRAME_INTERVAL_) {
+                // 判断是否需要更新位姿kdtree  
+                if (keyframe_position_cloud->size() - last_keyframe_position_kdtree_size_ 
+                        >= MIN_LOOP_FRAME_INTERVAL_ ) {
+                    if (last_keyframe_position_cloud == nullptr) {
+                        last_keyframe_position_cloud = keyframe_position_cloud;
+                        last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();  
+                        continue;  
+                    }
+                    // SlamLib::time::TicToc tt;
+                    std::cout << SlamLib::color::GREEN << "updata loop kdtree! size: " 
+                        << last_keyframe_position_cloud->size() << SlamLib::color::RESET << std::endl;
+                    kdtreeHistoryKeyPoses->setInputCloud(last_keyframe_position_cloud);
+                    // tt.toc("updata loop kdtree ");    // 耗时 0.5 ms 
+                    last_keyframe_position_cloud = keyframe_position_cloud;
+                    last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();  
+                }
+                
+                if (last_keyframe_position_kdtree_size_ < 2 * MIN_LOOP_FRAME_INTERVAL_) {
                     std::chrono::milliseconds dura(50);
                     std::this_thread::sleep_for(dura);
                     continue;  
                 }
-                // 判断是否需要更新位姿kdtree  
-                if (keyframe_position_cloud->size() - kdtree_size_ 
-                        >= MIN_LOOP_FRAME_INTERVAL_ ) {
-                    // SlamLib::time::TicToc tt;
-                    std::cout << SlamLib::color::GREEN << "updata loop kdtree!" << 
-                        SlamLib::color::RESET << std::endl;
-                    kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
-                    kdtree_size_ = keyframe_position_cloud->size();  
-                    // tt.toc("updata loop kdtree ");    // 耗时 0.5 ms 
-                }
-                // tt.tic(); 
-                // 场景识别模块工作  寻找相似帧
-                std::pair<int64_t, Eigen::Isometry3d> res{-1, Eigen::Isometry3d::Identity()};
-                res = scene_recognizer_.LoopDetect(curr_keyframe_.id_);   // 传入待识别的帧id 
-                // tt.toc(" scene_recognize  ");  // 2ms
-                // 如果场景识别没有找到相似帧   用位置搜索继续找回环
-                if (res.first == -1) {
-                    // 在历史关键帧中查找与当前关键帧距离小于阈值的集合  
-                    std::vector<int> search_ind_;  
-                    std::vector<float> search_dis_;
-                    kdtreeHistoryKeyPoses->radiusSearch(
-                        keyframe_position_cloud->points[curr_keyframe_.id_], 
-                        MAX_LOOP_DISTANCE_, 
-                        search_ind_, 
-                        search_dis_, 
-                        0);    // 设置搜索的最大数量  如果是0表示不限制数量 
-                    // 在候选关键帧集合中，找到与当前帧间隔较远的帧 作为候选帧  
-                    // 从距离近的帧开始遍历
-                    for (int i = 0; i < (int)search_ind_.size(); ++i) {
-                        int id = search_ind_[i];
-                        // 当前帧的idx 减去 搜索到的帧的idx  足够 大 ，表示间隔足够远
-                        if ((keyframe_position_cloud->size() - 1) - id > MIN_LOOP_FRAME_INTERVAL_) {
-                            std::cout << SlamLib::color::GREEN << "位姿搜索回环成功!, id: " << id 
-                                << ", curr id: " << curr_keyframe_.id_ << SlamLib::color::RESET << std::endl;
-                            res.first = id;
-                            break;
+                // 1、基于位置进行搜索
+                // 在历史关键帧中查找与当前关键帧距离小于阈值的集合  
+                tt.tic(); 
+                std::vector<int> search_ind_;  
+                std::vector<float> search_dis_;
+                kdtreeHistoryKeyPoses->radiusSearch(
+                    keyframe_position_cloud->points[curr_keyframe_.id_], 
+                    2 * MAX_LOOP_DISTANCE_, 
+                    search_ind_, 
+                    search_dis_, 
+                    0);    // 设置搜索的最大数量  如果是0表示不限制数量 
+                tt.toc("kdtreeHistoryKeyPoses->radiusSearch  ");  // 非常小  乎略不计  
+
+                // 在候选关键帧集合中，找到与当前帧间隔较远的帧 作为候选帧  
+                int short_range_loop_id = -1;
+                float short_range_loop_dis = 1000;
+                int long_range_loop_id = -1;
+                float long_range_loop_dis = 1000;
+                // 从距离近的帧开始遍历
+                for (int i = 0; i < (int)search_ind_.size(); ++i) {
+                    int loop_interval = curr_keyframe_.id_ - search_ind_[i];
+                    // 闭环间隔小与1000个关键帧认为是小距离，此时认为里程计是基本准确的，x,y,z的误差不会太大
+                    // 而当闭环间隔大与1000个关键帧时认为是远距离闭环，此时里程计的信任度下降，全局描述子启用。
+                    if (loop_interval < 1000) {
+                        // z的偏移认为足够小，因此kdtree搜索的距离越近，则物理世界的距离越近
+                        // 所以直接用kdtree搜索最近的帧作为闭环候选帧
+                        if (short_range_loop_id < 0) {
+                            short_range_loop_id = search_ind_[i];
+                            short_range_loop_dis = std::sqrt(search_dis_[i]);
+                            // 如果闭环的关键帧间隔足够大，且几何距离足够小 ，那么距离回环成立
+                            std::cout << "近距离   loop_id: " << search_ind_[i] 
+                                << ", dis: " << short_range_loop_dis << std::endl;
+                        }
+                    } else if (loop_interval >= 1000) {
+                        // 远距离回环，选择kdtree搜索距离最近的帧作为回环候选帧
+                        if (long_range_loop_id < 0) {
+                            long_range_loop_id = search_ind_[i];
+                            long_range_loop_dis = std::sqrt(search_dis_[i]);
+                            std::cout << "远距离   loop_id: " << search_ind_[i]
+                                << ", dis: " << long_range_loop_dis << std::endl;
                         }
                     }
+                }
 
-                    // if (res.first == -1) {
+                std::pair<int64_t, Eigen::Isometry3d> res{-1, Eigen::Isometry3d::Identity()};
+                // 有远距离回环不一定里程计存在较大误差，但是只有近距离回环里程计一定不存在大的误差
+                // 没有远距离历史帧，只有近距离历史帧，此时当前帧与近距离历史帧的里程计误差很小，
+                // z轴的漂移也很小，因此kdtree 搜索的距离可以近似真实的位姿差，
+                // 如果两帧间的距离小与10，则认为存在回环，如果距离过远 > 50m, 认为短期不存在回环
+                if (short_range_loop_id == -1 && long_range_loop_id == -1) {
+                    // 大范围内不存在可回环历史帧，因此可长时间不进行回环检测
+                    DETECT_FRAME_INTERVAL_ = 30; 
+                    std::cout << "距离历史帧较远，降低回环检测频率, DETECT_FRAME_INTERVAL_ = 30" << std::endl;
+                } else {
+                    DETECT_FRAME_INTERVAL_ = 20; 
+
+                    if (long_range_loop_dis < 50 || short_range_loop_dis < 50) {
+                        DETECT_FRAME_INTERVAL_ = 10; 
+                    }
+
+                    if (long_range_loop_dis < 20 || short_range_loop_dis < 20) {
+                        DETECT_FRAME_INTERVAL_ = 5; 
+                    }
+
+                    std::cout << "距离历史帧较近，增加回环检测频率, DETECT_FRAME_INTERVAL_ ="
+                        << DETECT_FRAME_INTERVAL_ << std::endl;
+                }
+
+                tt.tic(); 
+                // 场景识别模块工作  寻找相似帧
+                res = scene_recognizer_.LoopDetect(curr_keyframe_.id_);   // 传入待识别的帧id 
+                tt.toc(" scene_recognize  ");  // 2ms
+                // // 如果场景识别没有找到相似帧   用位置搜索继续找回环
+                if (res.first == -1) {
+                
+                //     // if (res.first == -1) {
                         std::chrono::milliseconds dura(50);
                         std::this_thread::sleep_for(dura);
                         continue;  
-                    // }
-                    // // poseGraph_database.SearchKeyFramePose(curr_keyframe_.id_, res.second);  // 读取该帧的pose 
-                    // poseGraph_database.SearchVertexPose(curr_keyframe_.id_, res.second);  // 读取该帧的pose 
-                    // // 同一个地点  z轴的值应该相同
-                    // Eigen::Isometry3d historical_pose;
-                    // // poseGraph_database.SearchKeyFramePose(res.first, historical_pose);
-                    // poseGraph_database.SearchVertexPose(res.first, historical_pose);  // 读取该帧的pose 
-                    // res.second.translation()[2] = historical_pose.translation()[2];   // 位姿初始值
-                    // tt.tic(); 
+                //     // }
+                //     // // poseGraph_database.SearchKeyFramePose(curr_keyframe_.id_, res.second);  // 读取该帧的pose 
+                //     // poseGraph_database.SearchVertexPose(curr_keyframe_.id_, res.second);  // 读取该帧的pose 
+                //     // // 同一个地点  z轴的值应该相同
+                //     // Eigen::Isometry3d historical_pose;
+                //     // // poseGraph_database.SearchKeyFramePose(res.first, historical_pose);
+                //     // poseGraph_database.SearchVertexPose(res.first, historical_pose);  // 读取该帧的pose 
+                //     // res.second.translation()[2] = historical_pose.translation()[2];   // 位姿初始值
+                //     // tt.tic(); 
                 } else {
                     // 当前帧位姿转换到世界系下
                     Eigen::Isometry3d historical_pose;
                     poseGraph_database.SearchVertexPose(res.first, historical_pose);
                     res.second = historical_pose * res.second;    // 位姿初始值
-                    std::cout << "回环的预测位姿： " << std::endl << res.second.matrix() << std::endl;
                 }
-                Eigen::Isometry3d origin_T = res.second;  
+                
+                // Eigen::Isometry3d origin_T = res.second;  
                 // 粗匹配
                 std::unordered_map<std::string, typename pcl::PointCloud<_PointType>::ConstPtr> localmaps;  
                 FeatureContainer  curr_scans; 
@@ -459,7 +503,8 @@ protected:
                     OVERLAP_THRESH_); 
                 std::cout << SlamLib::color::GREEN << "loop refine match converged, score: " 
                     << eva.first << std::endl;
-                std::cout << "回环的匹配位姿： " << std::endl << res.second.matrix() << std::endl;
+                
+                Eigen::Isometry3d origin_T = res.second;  
 
                 if (eva.first > MIN_SCORE_) {
                     // 对回环匹配失败的进行可视化检测
@@ -502,8 +547,8 @@ protected:
 private:    
     double DETECT_TIME_INTERVAL_ = 1.0;   // 检测的最小时间间隔    s   
     uint16_t DETECT_FRAME_INTERVAL_ = 3;   // 检测的最小帧间隔     
-    uint16_t MIN_LOOP_FRAME_INTERVAL_ = 100;    //  一个回环的最小间隔  
-    double MAX_LOOP_DISTANCE_ = 10;   //  回环之间   的最大距离  
+    uint16_t MIN_LOOP_FRAME_INTERVAL_ = 50;    //  一个回环的最小关键帧间隔  
+    double MAX_LOOP_DISTANCE_ = 50;   //  回环之间   的最大距离   单位m 
     double MAX_ODOM_ERROR_ = 50;  // 最大里程计误差  
     double SCORE_THRESH_ = 0;
     double OVERLAP_THRESH_ = 0;
@@ -514,9 +559,9 @@ private:
     std::mutex loop_mt_; 
     std::deque<FeatureContainer> pointcloud_process_; 
     KeyFrame::Ptr curr_keyframe_; 
-    double last_detect_time_ = -100;    
+    double last_detect_time_ = 0;    
     uint32_t last_detect_id_ = 0;  
-    uint32_t kdtree_size_ = 0;  
+    uint32_t last_keyframe_position_kdtree_size_ = 0;  
     pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr kdtreeHistoryKeyPoses;  // 历史关键帧的位姿kdtree 
     std::thread loop_thread_;  
 
