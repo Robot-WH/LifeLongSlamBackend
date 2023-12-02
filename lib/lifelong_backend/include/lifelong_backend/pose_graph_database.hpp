@@ -37,7 +37,7 @@ public:
     /**
      * @brief: 保存数据
      */            
-    bool Save() {   
+    void Save() {   
         // 保存keyframe信息 
         assert(database_save_path_ != ""); 
         // for (uint64_t i = 0; i < keyframe_database_.size(); i++) {
@@ -478,7 +478,7 @@ public:
         if (vertex_container_.size() <= index) {
             return false;
         }
-        
+
         pose = vertex_container_[index].pose_;
         return true;  
     }

@@ -82,7 +82,7 @@ void InitComm(ros::NodeHandle &private_nh) {
     markers_pub = private_nh.advertise<visualization_msgs::MarkerArray>("/graph_markers", 10);        // 可视化
     odom_to_map_pub = private_nh.advertise<nav_msgs::Odometry>("/odom_to_map", 10);   
     localizeMap_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/localize_map", 10);   
-    save_data_server = private_nh.advertiseService("/SaveGraph", &SaveDataService);
+    save_data_server = private_nh.advertiseService("/SaveData", &SaveDataService);
     save_map_server = private_nh.advertiseService("/SaveMap", &SaveMapService);
     keyframe_sub = private_nh.subscribe("/keyframe_info", 1000, &keyframeCallback,
         ros::TransportHints().tcpNoDelay());
@@ -95,17 +95,21 @@ void InitComm(ros::NodeHandle &private_nh) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 bool SaveDataService(lifelong_backend::SaveDataRequest& req, lifelong_backend::SaveDataResponse& res) {
     std::string directory = req.destination;
-    // System->SavePoseGraph();  
+    res.success = false;
+    backend_->SavePoseGraph();  
     std::cout<<"Save Graph Data success! "<<std::endl;
     res.success = true; 
+    return res.success;  
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 bool SaveMapService(lifelong_backend::SaveMapRequest& req, lifelong_backend::SaveMapResponse& res) {
     std::string directory = req.destination;
+    res.success = false;
     // System->SaveGlobalMap(req.resolution, directory);  
     std::cout<<"SaveGlobalMap success! resolution: "<<req.resolution<<std::endl;
     res.success = true; 
+    return res.success;  
 }
 
 

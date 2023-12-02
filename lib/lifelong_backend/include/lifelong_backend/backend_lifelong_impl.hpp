@@ -117,6 +117,7 @@ void LifeLongBackEndOptimization<_FeatureT>::SaveGlobalMap(float resolution, std
 template<typename _FeatureT>
 void LifeLongBackEndOptimization<_FeatureT>::SavePoseGraph() {
     ForceGlobalOptimaze();  
+    std::cout << "ForceGlobalOptimaze() done!" << std::endl;
     PoseGraphDataBase::GetInstance().Save();    // 数据库保存
     loop_detect_->Save(option_.database_save_path_);    // 回环检测数据库保存 
 }

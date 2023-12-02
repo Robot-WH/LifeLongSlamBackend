@@ -18,7 +18,7 @@
 #include "../Common/keyframe.hpp"
 #include "SceneRecognitionScanContext.hpp"
 namespace lifelong_backend {
-#define LOOP_DEBUG 1
+#define LOOP_DEBUG 0
 struct LoopDetectionOption {
     double score_thresh;
     double overlap_thresh;
@@ -291,7 +291,7 @@ protected:
                 }
                 // 1、基于位置进行搜索
                 // 在历史关键帧中查找与当前关键帧距离小于阈值的集合  
-                tt.tic(); 
+                // tt.tic(); 
                 std::vector<int> search_ind_;  
                 std::vector<float> search_dis_;
                 kdtreeHistoryKeyPoses->radiusSearch(
@@ -300,7 +300,7 @@ protected:
                     search_ind_, 
                     search_dis_, 
                     0);    // 设置搜索的最大数量  如果是0表示不限制数量 
-                tt.toc("kdtreeHistoryKeyPoses->radiusSearch  ");  // 非常小  乎略不计  
+                // tt.toc("kdtreeHistoryKeyPoses->radiusSearch  ");  // 非常小  乎略不计  
 
                 // 在候选关键帧集合中，找到与当前帧间隔较远的帧 作为候选帧  
                 int short_range_loop_id = -1;
@@ -313,76 +313,112 @@ protected:
                     // 闭环间隔小与1000个关键帧认为是小距离，此时认为里程计是基本准确的，x,y,z的误差不会太大
                     // 而当闭环间隔大与1000个关键帧时认为是远距离闭环，此时里程计的信任度下降，全局描述子启用。
                     if (loop_interval < 1000) {
-                        // z的偏移认为足够小，因此kdtree搜索的距离越近，则物理世界的距离越近
+                        // odom的误差认为足够小 
                         // 所以直接用kdtree搜索最近的帧作为闭环候选帧
                         if (short_range_loop_id < 0) {
                             short_range_loop_id = search_ind_[i];
                             short_range_loop_dis = std::sqrt(search_dis_[i]);
                             // 如果闭环的关键帧间隔足够大，且几何距离足够小 ，那么距离回环成立
-                            std::cout << "近距离   loop_id: " << search_ind_[i] 
-                                << ", dis: " << short_range_loop_dis << std::endl;
+                            // std::cout << "近距离   loop_id: " << search_ind_[i] 
+                            //     << ", dis: " << short_range_loop_dis << std::endl;
                         }
                     } else if (loop_interval >= 1000) {
                         // 远距离回环，选择kdtree搜索距离最近的帧作为回环候选帧
                         if (long_range_loop_id < 0) {
                             long_range_loop_id = search_ind_[i];
                             long_range_loop_dis = std::sqrt(search_dis_[i]);
-                            std::cout << "远距离   loop_id: " << search_ind_[i]
-                                << ", dis: " << long_range_loop_dis << std::endl;
+                            // std::cout << "远距离   loop_id: " << search_ind_[i]
+                            //     << ", dis: " << long_range_loop_dis << std::endl;
                         }
                     }
                 }
 
-                std::pair<int64_t, Eigen::Isometry3d> res{-1, Eigen::Isometry3d::Identity()};
-                // 有远距离回环不一定里程计存在较大误差，但是只有近距离回环里程计一定不存在大的误差
-                // 没有远距离历史帧，只有近距离历史帧，此时当前帧与近距离历史帧的里程计误差很小，
-                // z轴的漂移也很小，因此kdtree 搜索的距离可以近似真实的位姿差，
-                // 如果两帧间的距离小与10，则认为存在回环，如果距离过远 > 50m, 认为短期不存在回环
                 if (short_range_loop_id == -1 && long_range_loop_id == -1) {
                     // 大范围内不存在可回环历史帧，因此可长时间不进行回环检测
                     DETECT_FRAME_INTERVAL_ = 30; 
                     std::cout << "距离历史帧较远，降低回环检测频率, DETECT_FRAME_INTERVAL_ = 30" << std::endl;
+                    continue;   
                 } else {
-                    DETECT_FRAME_INTERVAL_ = 20; 
-
-                    if (long_range_loop_dis < 50 || short_range_loop_dis < 50) {
-                        DETECT_FRAME_INTERVAL_ = 10; 
-                    }
-
-                    if (long_range_loop_dis < 20 || short_range_loop_dis < 20) {
-                        DETECT_FRAME_INTERVAL_ = 5; 
+                    // 当前帧与历史帧最小距离超过60m时，认为短时间没有回环发生的可能，
+                    // 对于近距离历史帧，由与里程计误差较小，60m距离的可靠性很高。
+                    // 对于远距离历史帧，虽然里程计误差变大，但是不至于产生60m的误差，
+                    // 里程计超过60m的误差只可能在极大场景中发生，而极大场景会融合GPS...
+                    // 所以一旦当前帧与历史帧的距离超过60m，就认为短时间不会出现回环。
+                    if (long_range_loop_dis > 60 && short_range_loop_dis > 60) {
+                        DETECT_FRAME_INTERVAL_ = 20;       // 降低检测间隔，提高检测频率 
+                        std::chrono::milliseconds dura(50);
+                        std::this_thread::sleep_for(dura);
+                        continue;   // 回环不会出现，因此直接跳出
+                    } else if (long_range_loop_dis > 20 && short_range_loop_dis > 20) {
+                        DETECT_FRAME_INTERVAL_ = 8;    // 进一步提高频率 
+                    } else {
+                        DETECT_FRAME_INTERVAL_ = 3;     // 进一步提高频率 
                     }
 
                     std::cout << "距离历史帧较近，增加回环检测频率, DETECT_FRAME_INTERVAL_ ="
                         << DETECT_FRAME_INTERVAL_ << std::endl;
                 }
 
-                tt.tic(); 
-                // 场景识别模块工作  寻找相似帧
-                res = scene_recognizer_.LoopDetect(curr_keyframe_.id_);   // 传入待识别的帧id 
-                tt.toc(" scene_recognize  ");  // 2ms
-                // // 如果场景识别没有找到相似帧   用位置搜索继续找回环
-                if (res.first == -1) {
-                
-                //     // if (res.first == -1) {
+                std::pair<int64_t, Eigen::Isometry3d> res{-1, Eigen::Isometry3d::Identity()};
+                // 近距离回环时，优先使用几何位置回环检测，因为近距离odom误差较小，位置检测->描述子检测
+                // 远距离回环时，优先使用全局描述子回环检测，描述子检测->位置检测
+                if (long_range_loop_dis < short_range_loop_dis) {
+                    // 远距离回环
+                    std::cout << "远距离回环" << std::endl;
+                    tt.tic(); 
+                    // 场景识别模块工作  寻找相似帧
+                    res = scene_recognizer_.LoopDetect(curr_keyframe_.id_);   // 传入待识别的帧id 
+                    tt.toc(" scene_recognize  ");  // 2ms
+                    // 如果场景识别没有找到相似帧   用位置搜索继续找回环
+                    if (res.first == -1) {
+                        std::cout << "远距离回环，描述子搜索失败，转为位置搜索，id: " << long_range_loop_id
+                            << ",dis: " << long_range_loop_dis << std::endl;
+                        // 回环最远接收 x-y 10m的距离(太远匹配就不准，影响回环的准确性)，
+                        // 假设远距离回环时，odom的误差最大接受 x-y 20m, 那么远距离回环时odom的最大距离就是30m
+                        res.first = long_range_loop_id;  
+                        poseGraph_database.SearchVertexPose(curr_keyframe_.id_, res.second);  // 读取当前帧的pose 
+                        // 同一个地点  z轴的值应该相同
+                        Eigen::Isometry3d historical_pose;
+                        poseGraph_database.SearchVertexPose(res.first, historical_pose);  // 读取回环候选帧的pose 
+                        res.second.translation()[2] = historical_pose.translation()[2];   // 位姿初始值
+                        // 计算x-y 的距离
+                        float plane_dis = (res.second.translation() - historical_pose.translation()).norm();  
+                        
+                        if (plane_dis > 30) {
+                            std::chrono::milliseconds dura(50);
+                            std::this_thread::sleep_for(dura);
+                            continue;   // 回环不会出现，因此直接跳出
+                        }
+                        // tt.tic(); 
+                    } else {
+                        // 当前帧位姿转换到世界系下
+                        Eigen::Isometry3d historical_pose;
+                        poseGraph_database.SearchVertexPose(res.first, historical_pose);
+                        res.second = historical_pose * res.second;    // 位姿初始值
+                    }
+                } else {
+                    std::cout << "近距离回环，位置搜索，id: " << short_range_loop_id
+                            << ",dis: " << short_range_loop_dis << std::endl;
+                    // 回环最远接收 x-y 10m的距离(太远匹配就不准，影响回环的准确性)，
+                    // 假设近距离回环时，odom的误差最大接受 x-y 10m, 那么远距离回环时odom的最大距离就是20m
+                    res.first = short_range_loop_id;  
+                    poseGraph_database.SearchVertexPose(curr_keyframe_.id_, res.second);  // 读取当前帧的pose 
+                    // 同一个地点  z轴的值应该相同
+                    Eigen::Isometry3d historical_pose;
+                    poseGraph_database.SearchVertexPose(res.first, historical_pose);  // 读取回环候选帧的pose 
+                    res.second.translation()[2] = historical_pose.translation()[2];   // 位姿初始值
+                    // 计算x-y 的距离
+                    float plane_dis = (res.second.translation() - historical_pose.translation()).norm();  
+                    
+                    if (plane_dis > 20) {
                         std::chrono::milliseconds dura(50);
                         std::this_thread::sleep_for(dura);
-                        continue;  
-                //     // }
-                //     // // poseGraph_database.SearchKeyFramePose(curr_keyframe_.id_, res.second);  // 读取该帧的pose 
-                //     // poseGraph_database.SearchVertexPose(curr_keyframe_.id_, res.second);  // 读取该帧的pose 
-                //     // // 同一个地点  z轴的值应该相同
-                //     // Eigen::Isometry3d historical_pose;
-                //     // // poseGraph_database.SearchKeyFramePose(res.first, historical_pose);
-                //     // poseGraph_database.SearchVertexPose(res.first, historical_pose);  // 读取该帧的pose 
-                //     // res.second.translation()[2] = historical_pose.translation()[2];   // 位姿初始值
-                //     // tt.tic(); 
-                } else {
-                    // 当前帧位姿转换到世界系下
-                    Eigen::Isometry3d historical_pose;
-                    poseGraph_database.SearchVertexPose(res.first, historical_pose);
-                    res.second = historical_pose * res.second;    // 位姿初始值
+                        continue;   // 回环不会出现，因此直接跳出
+                    }
                 }
+                
+
+
                 
                 // Eigen::Isometry3d origin_T = res.second;  
                 // 粗匹配
@@ -539,6 +575,7 @@ protected:
                 new_loops_.push_back(std::move(new_loop));  
                 loop_mt_.unlock();  
             }
+
             std::chrono::milliseconds dura(50);
             std::this_thread::sleep_for(dura);
         }
