@@ -206,19 +206,23 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
             continue;  
         }
 
+        static double avg_t = 0;
+        static int n = 1;  
+
         std::cout << SlamLib::color::GREEN << "-----------------LOCALIZATION!-----------------" << std::endl;
         // 取出最早的帧  进行map匹配
         KeyFrame& keyframe = this->new_keyframe_queue_.front(); 
         SlamLib::FeaturePointCloudContainer<_FeatureT>& points = this->new_keyframe_points_queue_.front();
         this->keyframe_queue_sm_.unlock_shared();
-        SlamLib::time::TicToc tt;  
         Eigen::Isometry3d pose_in_map = this->trans_odom2map_ * keyframe.odom_;  
         pcl::PointXYZ curr_pos(pose_in_map.translation().x(), 
                                                         pose_in_map.translation().y(), 
                                                         pose_in_map.translation().z());
         std::vector<int> search_ind;
         std::vector<float> search_dis;   // 这个是距离的平方 !! 
+        SlamLib::time::TicToc tt;  
         loop_detect_->HistoricalPositionSearch(curr_pos, 0, 10, search_ind, search_dis);   // 搜索最近的历史关键帧
+        tt.toc("HistoricalPositionSearch ");
         // std::cout<<"near node: "<<search_ind[0]<<std::endl;
         // std::cout << "search_dis.front: " << std::sqrt(search_dis.front()) << ", back: " << std::sqrt(search_dis.back()) << std::endl;
         /**
@@ -226,6 +230,12 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
          */                    
         if (!search_ind.empty()) {
             LocalizationPointsInfo<_FeatureT> loc_points;  
+            tt.tic();
+            // 给局部地图进行降采样的滤波器
+            SlamLib::pointcloud::FilterOption::VoxelGridFilterOption filter_option;
+            filter_option.mode_ = "VoxelGrid";
+            filter_option.voxel_grid_option_.resolution_ = 0.3;  
+            SlamLib::pointcloud::VoxelGridFilter<_FeatureT> downsample(filter_option);
             /**
              * @todo 目前是直接提取一定范围的关键帧组合为定位地图，之后要改为，每个区域维护一个submap，
              *  直接提取这个区域的submap进行定位，这个submap也具备更新的能力 
@@ -251,15 +261,20 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                     pcl::transformPointCloud(*origin_points, trans_points, pose.matrix()); // 转到世界坐标  
                     *local_map += trans_points; 
                 }
-
+                // std::cout << "before filter size: " << local_map->size() << std::endl;
+                local_map = downsample.Filter(local_map); 
+                // std::cout << "after filter size: " << local_map->size() << std::endl;
                 localize_registration_->SetInputSource(std::make_pair(name, local_map)); 
                 loc_points.map_[name] = local_map; 
+                // SlamLib::time::TicToc tt;  
                 IPC::Server::Instance().Publish("localize_map", local_map);   // 发布地图用于可视化    
+                // tt.toc("Publish ");   // 1ms
             }
 
+            // tt.toc("build map ");
             loc_points.time_stamps_ = keyframe.time_stamp_; 
             localize_registration_->SetInputTarget(points);
-
+            // tt.tic(); 
             if (!localize_registration_->Solve(pose_in_map)) {
                 LOG(WARNING)<<SlamLib::color::RED<<"错误: 定位匹配无法收敛！转换到重定位模式..."
                     <<SlamLib::color::RESET;
@@ -267,7 +282,11 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                 continue;  
             }
             //std::cout<<SlamLib::color::GREEN<<"after loc pose_in_map: "<<pose_in_map.matrix()<<std::endl;
-            tt.toc("localization ");
+            double t = tt.toc("localization ");
+            avg_t += (t - avg_t) / n;
+            n++;  
+            std::cout << "avg_t: " << avg_t << std::endl;
+
             tt.tic(); 
             // 匹配评估
             typename pcl::PointCloud<_FeatureT>::ConstPtr eva_local_map(
