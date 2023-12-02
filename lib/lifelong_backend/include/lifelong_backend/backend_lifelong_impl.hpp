@@ -14,7 +14,6 @@
 #include "InnerComm/InnerProcessComm.hpp"
 #include <yaml-cpp/yaml.h>
 namespace lifelong_backend {
-
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 template<typename _FeatureT>
 LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string config_path) {

@@ -19,6 +19,7 @@
 #include "SceneRecognitionScanContext.hpp"
 namespace lifelong_backend {
 #define LOOP_DEBUG 0
+
 struct LoopDetectionOption {
     double score_thresh;
     double overlap_thresh;
@@ -116,7 +117,7 @@ public:
         Eigen::Isometry3d historical_pose;
 
         if (!poseGraph_database.SearchVertexPose(res.first, historical_pose)) {
-            LOG(WARNING) << SlamLib::color::RED << "ERROR: not find historical pose "
+            LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: not find historical pose "
                 << SlamLib::color::RESET;
             res.first = -1;
             return res;  

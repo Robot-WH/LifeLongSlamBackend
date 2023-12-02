@@ -79,7 +79,10 @@ public:
      * @return <id, 与相似帧的相对变换>
      */            
     std::pair<int64_t, Eigen::Isometry3d> FindSimilarPointCloud(FeatureContainer const& scan_in) {
-        if (polarcontext_ringkey_tree_ == nullptr) return std::make_pair(-1, Eigen::Isometry3d::Identity()); 
+        if (polarcontext_ringkey_tree_ == nullptr) {
+            return std::make_pair(-1, Eigen::Isometry3d::Identity()); 
+        }
+        
         pcl::PointCloud<_PointCloudT> selected_pointcloud; 
         extractInterestPointClouds(scan_in, selected_pointcloud);
         Eigen::MatrixXd sc_desc = sc_.MakeScanContext(selected_pointcloud);                  // v1 提取sc全局特征描述符
