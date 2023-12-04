@@ -62,7 +62,7 @@ template<typename _FeatureT>
 void LifeLongBackEndOptimization<_FeatureT>::Load() {    
     loop_detect_->Load(option_.database_save_path_); // 加载场景识别数据库 
     // pose graph 加载
-    if (!PoseGraphDataBase::GetInstance().Load()) {
+    if (!PoseGraphDataBase::GetInstance().Load(option_.database_save_path_)) {
         LOG(INFO) << SlamLib::color::YELLOW << "数据库载入失败，准备建图...... " << SlamLib::color::RESET;
         return;
     }  
@@ -145,15 +145,27 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
         LOG(INFO) << SlamLib::color::GREEN << "-----------------RELOCALIZATION!-----------------" 
             << SlamLib::color::RESET;
         std::pair<int64_t, Eigen::Isometry3d> res = loop_detect_->Relocalization(lidar_data.pointcloud_data_); 
+        static uint8_t n = 0;  
         // 重定位失败 ，若开启地图更新，此时会重新建立一条新的轨迹，否则延迟一下，继续重定位 
         if (res.first == -1) {
-            if (enable_map_update_) {
-            } 
+            // 连续几帧重定位失败则建立新地图 
+            if (n > 3) {
+                std::cout << SlamLib::color::GREEN << "重定位失败，新建轨迹..." 
+                    << SlamLib::color::RESET << std::endl;
+                n = 0;
+                work_mode_ = WorkMode::MAPPING;
+                optimizer_->Reset();  
+                PoseGraphDataBase::GetInstance().DataReset(); 
+            }
+
+            n++;
         } else {
+            n = 0;
             work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
             this->trans_odom2map_ = res.second * odom.inverse(); 
             IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
         }
+
         return; 
     }
     
@@ -442,7 +454,6 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
 template<typename _FeatureT>   
 void LifeLongBackEndOptimization<_FeatureT>::mapping() {
     while(true) {
-        //if (work_mode_ != MAPPING) return;  
         if (work_mode_ != WorkMode::MAPPING) {
             std::chrono::milliseconds dura(1000);
             std::this_thread::sleep_for(dura);

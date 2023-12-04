@@ -7,16 +7,12 @@
 #include <glog/logging.h>
 #include "lifelong_backend/GraphOptimization/graph_optimization_g2o.h"
 #include "SlamLib/tic_toc.hpp"
-
 namespace lifelong_backend {
-
 using SlamBlockSolver = g2o::BlockSolver<g2o::BlockSolverTraits<-1, -1>>;
 // using SlamLinearSolver = g2o::LinearSolverCSparse<SlamBlockSolver::PoseMatrixType>;
 using SlamLinearSolver = g2o::LinearSolverEigen<SlamBlockSolver::PoseMatrixType>;
-
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 G2oGraphOptimizer::G2oGraphOptimizer(const std::string& solver_type) {
-
     graph_ptr_.reset(new g2o::SparseOptimizer());    // g2o::SparseOptimizer 指针 
 
     g2o::OptimizationAlgorithmFactory *solver_factory = 
@@ -37,13 +33,13 @@ G2oGraphOptimizer::G2oGraphOptimizer(const std::string& solver_type) {
     // // 第3步：创建总求解器solver。并从GN, LM, DogLeg 中选一个，再用上述块求解器BlockSolver初始化
     // g2o::OptimizationAlgorithmLevenberg* solver =
     //     new g2o::OptimizationAlgorithmLevenberg(std::move(blockSolver));
-    
     graph_ptr_->setAlgorithm(solver);
 
     if (!graph_ptr_->solver()) {
         LOG(ERROR) << "G2O 优化器创建失败！";
         throw std::bad_alloc();  
     }
+
     LOG(INFO) << "G2O 优化器创建成功！";
     robust_kernel_factory_ = g2o::RobustKernelFactory::instance();
 }
@@ -53,16 +49,20 @@ void G2oGraphOptimizer::Rebuild(std::deque<Vertex> const& vertexs,
                                                                         std::deque<Edge> const& edges) {
     bool is_first = true;  
     bool need_fix = true; 
+
     for (auto const& vertex : vertexs) {
         AddSe3Node(vertex.pose_, vertex.id_, need_fix); 
+
         if (is_first) {
             is_first = false; 
             need_fix = false;  
         }
     }
+
     for (auto const& edge : edges) {
         AddSe3Edge(edge.link_id_.first, edge.link_id_.second, edge.constraint_, edge.noise_);  
-    }   
+    }
+
     Optimize();
 }
 
@@ -98,6 +98,12 @@ bool G2oGraphOptimizer::Optimize(uint8_t flag) {
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void G2oGraphOptimizer::Reset() {
+    std::cout << "清空 g2o图数据!" << std::endl;
+    graph_ptr_->clear();  
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 bool G2oGraphOptimizer::GetAllOptimizedPose(std::deque<Eigen::Matrix4f>& optimized_pose) {
     optimized_pose.clear();
     int vertex_num = graph_ptr_->vertices().size();
@@ -107,6 +113,7 @@ bool G2oGraphOptimizer::GetAllOptimizedPose(std::deque<Eigen::Matrix4f>& optimiz
         Eigen::Isometry3d pose = v->estimate();
         optimized_pose.push_back(pose.matrix().cast<float>());
     }
+
     return true;
 }
 
@@ -130,6 +137,7 @@ void G2oGraphOptimizer::AddSe3Node(const Eigen::Isometry3d &pose, uint64_t const
 
     vertex->setId(id);   // 图中 每个节点的id 必须是唯一的  若id 与 之前的重复  则无法添加id 到 图中 
     vertex->setEstimate(pose);
+
     if (need_fix) {
         vertex->setFixed(true);
     }
@@ -162,6 +170,7 @@ void G2oGraphOptimizer::AddSe3Edge(
     edge->vertices()[0] = v1;
     edge->vertices()[1] = v2;
     graph_ptr_->addEdge(edge);
+
     if (need_robust_kernel_) {
         AddRobustKernel(edge, robust_kernel_name_, robust_kernel_size_);
     }
@@ -183,6 +192,7 @@ void G2oGraphOptimizer::AddRobustKernel(g2o::OptimizableGraph::Edge *edge,
     }
 
     g2o::RobustKernel *kernel = robust_kernel_factory_->construct(kernel_type);
+
     if (kernel == nullptr) {
         std::cerr << "warning : invalid robust kernel type: " << kernel_type << std::endl;
         return;
@@ -195,9 +205,11 @@ void G2oGraphOptimizer::AddRobustKernel(g2o::OptimizableGraph::Edge *edge,
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 Eigen::MatrixXd G2oGraphOptimizer::CalculateDiagMatrix(Eigen::VectorXd noise) {
     Eigen::MatrixXd information_matrix = Eigen::MatrixXd::Identity(noise.rows(), noise.rows());
+
     for (int i = 0; i < noise.rows(); i++) {
         information_matrix(i, i) /= noise(i);
     }
+
     return information_matrix;
 }
 
@@ -236,5 +248,4 @@ Eigen::MatrixXd G2oGraphOptimizer::CalculateSe3PriorQuaternionEdgeInformationMat
     Eigen::MatrixXd information_matrix;
     return information_matrix;
 }
-
 }

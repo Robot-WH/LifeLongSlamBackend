@@ -63,14 +63,17 @@ public:
     /**
      * @brief: 从指定路径中加载数据库  
      */            
-    bool Load() {
+    bool Load(std::string database_save_path) {
+        database_save_path_ = database_save_path;  
         assert(database_save_path_ != ""); 
+
         if (!LoadPoseGraph()) {
             DataReset(); 
             LOG(INFO) << SlamLib::color::RED<<"Load Pose-Graph failure" 
                 << SlamLib::color::RESET << std::endl;
             return false; 
         }
+
         LOG(INFO) << SlamLib::color::GREEN<<"Load Pose-Graph done" 
             << SlamLib::color::RESET << std::endl;
         // 加载姿态点云
@@ -80,12 +83,15 @@ public:
             DataReset(); 
             return false; 
         }
+
         file_path = database_save_path_ +"/Rot3D.pcd";
+
         if (pcl::io::loadPCDFile(file_path, *cloudKeyFrameRot3D_) < 0) {
             LOG(INFO) << SlamLib::color::RED << "Load Rot3D error !";
             DataReset();
             return false;
         } 
+
         return true; 
     }
 
@@ -95,58 +101,58 @@ public:
      * @return true 
      * @return false 
      */
-    bool LoadKeyFrame() {
-        uint64_t index = 0; 
-        // 加载keyframe数据
-        while(1) {
-            KeyFrame keyframe;  
-            std::ifstream ifs(database_save_path_ + "/KeyFrameData/data_" + std::to_string(index));
+    // bool LoadKeyFrame() {
+    //     uint64_t index = 0; 
+    //     // 加载keyframe数据
+    //     while(1) {
+    //         KeyFrame keyframe;  
+    //         std::ifstream ifs(database_save_path_ + "/KeyFrameData/data_" + std::to_string(index));
             
-            if(!ifs) {
-                break;
-            }
+    //         if(!ifs) {
+    //             break;
+    //         }
 
-            index++;  
+    //         index++;  
 
-            while(!ifs.eof()) {
-                std::string token;
-                ifs >> token;
+    //         while(!ifs.eof()) {
+    //             std::string token;
+    //             ifs >> token;
 
-                if(token == "stamp") {
-                    ifs >> keyframe.time_stamp_; 
-                } else if (token == "id") {
-                    ifs >> keyframe.id_; 
-                } else if (token == "odom") {
-                    Eigen::Matrix4d matrix; 
-                    for(int i = 0; i < 4; i++) {
-                        for(int j = 0; j < 4; j++) {
-                            ifs >> matrix(i, j);
-                        }
-                    }
-                    keyframe.odom_.translation() = matrix.block<3, 1>(0, 3);
-                    keyframe.odom_.linear() = matrix.block<3, 3>(0, 0);
-                }
-                else if (token == "utm_coord") {
-                }
-                else if (token == "floor_coeffs") {
-                }
-                else if (token == "acceleration") {
-                }
-                else if (token == "orientation") {
-                }
-            }
+    //             if(token == "stamp") {
+    //                 ifs >> keyframe.time_stamp_; 
+    //             } else if (token == "id") {
+    //                 ifs >> keyframe.id_; 
+    //             } else if (token == "odom") {
+    //                 Eigen::Matrix4d matrix; 
+    //                 for(int i = 0; i < 4; i++) {
+    //                     for(int j = 0; j < 4; j++) {
+    //                         ifs >> matrix(i, j);
+    //                     }
+    //                 }
+    //                 keyframe.odom_.translation() = matrix.block<3, 1>(0, 3);
+    //                 keyframe.odom_.linear() = matrix.block<3, 3>(0, 0);
+    //             }
+    //             else if (token == "utm_coord") {
+    //             }
+    //             else if (token == "floor_coeffs") {
+    //             }
+    //             else if (token == "acceleration") {
+    //             }
+    //             else if (token == "orientation") {
+    //             }
+    //         }
 
-            keyframe_database_.push_back(std::move(keyframe));
-        }
+    //         keyframe_database_.push_back(std::move(keyframe));
+    //     }
 
-        if (index == 0) {
-            return false;
-        }
+    //     if (index == 0) {
+    //         return false;
+    //     }
 
-        LOG(INFO) << SlamLib::color::GREEN << "Load KetFrame done, num: " <<
-            keyframe_database_.size() << SlamLib::color::RESET;
-        return true; 
-    }
+    //     LOG(INFO) << SlamLib::color::GREEN << "Load KetFrame done, num: " <<
+    //         keyframe_database_.size() << SlamLib::color::RESET;
+    //     return true; 
+    // }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
@@ -500,6 +506,15 @@ public:
         cloudKeyFrameRot3D_->points[id].intensity = q.w();   
     }
 
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    void DataReset() {
+        cloudKeyFramePosition3D_->clear();
+        cloudKeyFrameRot3D_->clear();
+        keyframe_database_.clear();
+        edge_container_.clear();
+        vertex_container_.clear(); 
+    }
+
 protected:
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     PoseGraphDataBase() {
@@ -514,15 +529,6 @@ protected:
 
     PoseGraphDataBase(PoseGraphDataBase const& object) {}
     PoseGraphDataBase(PoseGraphDataBase&& object) {}
-
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    void DataReset() {
-        cloudKeyFramePosition3D_->clear();
-        cloudKeyFrameRot3D_->clear();
-        keyframe_database_.clear();
-        edge_container_.clear();
-        vertex_container_.clear(); 
-    }
 
 private:
     bool has_new_keyframe_ = false; 

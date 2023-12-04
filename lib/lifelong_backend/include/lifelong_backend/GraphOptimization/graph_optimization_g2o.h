@@ -94,6 +94,7 @@ public:
     void Rebuild(std::deque<Vertex> const& vertexs, std::deque<Edge> const& edges) override; 
     // 优化
     bool Optimize(uint8_t flag = 0) override;
+    void Reset() override;  
     // 输出数据
     bool GetAllOptimizedPose(std::deque<Eigen::Matrix4f>& optimized_pose) override;
     Eigen::Isometry3d ReadOptimizedPose(uint64_t const& id) override;
