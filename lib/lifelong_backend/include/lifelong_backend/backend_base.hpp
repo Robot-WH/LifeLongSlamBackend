@@ -16,6 +16,7 @@
 #include "pose_graph_database.hpp"
 #include "LoopDetection/loopDetection.hpp"
 namespace lifelong_backend {
+    
 template<typename _T>
 struct KeyFrameInfo {
     double time_stamps_;  

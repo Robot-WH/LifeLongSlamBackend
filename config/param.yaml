@@ -1,4 +1,4 @@
-database_path: "/home/lwh/SlamDataBase"
+database_path: "/home/lwh/SlamDataBase/KittiMap"
 optimizer:
     type: "g2o"
 loop_detect:

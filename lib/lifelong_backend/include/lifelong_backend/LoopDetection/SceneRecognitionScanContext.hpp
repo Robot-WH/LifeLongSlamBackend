@@ -132,12 +132,14 @@ public:
             // if (i == 1) 
             //     std::cout<<"polarcontexts_sc_[1]: "<<std::endl<<polarcontexts_sc_[i]<<std::endl;
             ofs << "\nringkey_desc\n";
+
             for (uint16_t k = 0; k < polarcontext_ringkeys_vec_[i].size(); k++) {
                 ofs << polarcontext_ringkeys_vec_[i][k] << " ";
                 // if (i == 1) 
                 //     std::cout<<"polarcontext_ringkeys_vec_[1]: "<<polarcontext_ringkeys_vec_[i][k]<<" "<<std::endl;
             }
         }
+        
         return true; 
     }
 

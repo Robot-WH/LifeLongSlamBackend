@@ -120,6 +120,10 @@ private:
     bool enable_planeConstraint_optimize_ = false;
     bool enable_map_update_ = true;  // 开启地图更新 
     bool has_loop_ = false;  
+    uint64_t id_ = 0;
+    uint64_t start_id_ = 0;
+    uint32_t session_ = 0;   
+
     // 回环模块 
     std::unique_ptr<LoopDetection<_FeatureT>> loop_detect_;  
     // 优化器

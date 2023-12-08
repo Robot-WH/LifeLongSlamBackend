@@ -23,6 +23,12 @@ namespace lifelong_backend {
  * @brief: 维护 pose graph 的数据 
  */    
 class PoseGraphDataBase {
+private:
+    struct Info {
+        uint32_t session_num;  
+        uint64_t keyframe_num;  
+        uint32_t edge_num; 
+    };
 public:
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
@@ -36,27 +42,33 @@ public:
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 保存数据
+     * @details pose-graph的数据 保存在 session 中  
      */            
     void Save() {   
         // 保存keyframe信息 
         assert(database_save_path_ != ""); 
-        // for (uint64_t i = 0; i < keyframe_database_.size(); i++) {
-        //     keyframe_database_[i].Save(database_save_path_);  
-        // }
         // 保存pose-graph
         // 节点
-        for (uint64_t i = 0; i < vertex_container_.size(); i++) {
-            vertex_container_[i].Save(database_save_path_);  
+        for (auto& item : vertex_container_) {
+            item.Save(database_save_path_); 
         }
+        // for (uint64_t i = 0; i < vertex_container_.size(); i++) {
+        //     vertex_container_[i].Save(database_save_path_);  
+        // }
         // 边
         for (uint64_t i = 0; i < edge_container_.size(); i++) {
             edge_container_[i].Save(database_save_path_);  
         }
-        // 保存位姿点云
-        std::string file_path = database_save_path_ + "/Position3D.pcd";
-        pcl::io::savePCDFileBinary(file_path, *cloudKeyFramePosition3D_);
-        file_path = database_save_path_ + "/Rot3D.pcd";
-        pcl::io::savePCDFileBinary(file_path, *cloudKeyFrameRot3D_);
+        // // 保存位姿点云
+        // std::string file_path = database_save_path_ + "/Position3D.pcd";
+        // pcl::io::savePCDFileBinary(file_path, *cloudKeyFramePosition3D_);
+        // file_path = database_save_path_ + "/Rot3D.pcd";
+        // pcl::io::savePCDFileBinary(file_path, *cloudKeyFrameRot3D_);
+        // 更新info文件
+        std::ofstream ofs(database_save_path_ + "/info");
+        ofs << "session_num " << info_.session_num + 1 << "\n";
+        ofs << "keyframe_num " << vertex_container_.back().id_ + 1 << "\n";
+        ofs << "edge_num " << info_.edge_num << "\n";
     }
     
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -66,6 +78,41 @@ public:
     bool Load(std::string database_save_path) {
         database_save_path_ = database_save_path;  
         assert(database_save_path_ != ""); 
+        // 不管是不是第一次session，都默认以session_0为main session 
+        // session_path_ = database_save_path_ + "/session_0"; 
+        // 读取当前area的Info
+        std::ifstream ifs(database_save_path_ + "/info");
+            
+        if(!ifs) {
+            std::cout << "开启第一个session..." << std::endl;
+            info_.session_num = 0;  
+            info_.keyframe_num = 0;  
+            info_.edge_num = 0;  
+            // 创建文件夹 session_0
+            boost::filesystem::create_directory(database_save_path_ + "/KeyFrameDescriptor");
+            boost::filesystem::create_directory(database_save_path_ + "/KeyFramePoints");
+            boost::filesystem::create_directory(database_save_path_ + "/Vertex");
+            boost::filesystem::create_directory(database_save_path_ + "/Edge");
+            return false;
+        } 
+
+        std::cout << SlamLib::color::GREEN << "加载当前Area的Info..." << std::endl;
+
+        while(!ifs.eof()) {
+            std::string token;
+            ifs >> token;
+
+            if (token == "session_num") {
+                ifs >> info_.session_num; 
+                std::cout << "session数量: " << info_.session_num <<std::endl;
+            } else if (token == "keyframe_num") {
+                ifs >> info_.keyframe_num; 
+                std::cout << "keyframe总数: " << info_.keyframe_num <<std::endl;
+            } else if (token == "edge_num") {
+                ifs >> info_.edge_num; 
+                std::cout << "edge总数: " << info_.edge_num << SlamLib::color::RESET <<std::endl;
+            }
+        }
 
         if (!LoadPoseGraph()) {
             DataReset(); 
@@ -76,21 +123,23 @@ public:
 
         LOG(INFO) << SlamLib::color::GREEN<<"Load Pose-Graph done" 
             << SlamLib::color::RESET << std::endl;
-        // 加载姿态点云
-        std::string file_path = database_save_path_ +"/Position3D.pcd";
-        if (pcl::io::loadPCDFile(file_path, *cloudKeyFramePosition3D_) < 0) {
-            LOG(INFO) << SlamLib::color::RED << "Load Position3D error !";
-            DataReset(); 
-            return false; 
-        }
 
-        file_path = database_save_path_ +"/Rot3D.pcd";
+        // // 加载姿态点云
+        // std::string file_path = database_save_path_ +"/Position3D.pcd";
+        
+        // if (pcl::io::loadPCDFile(file_path, *cloudKeyFramePosition3D_) < 0) {
+        //     LOG(INFO) << SlamLib::color::RED << "Load Position3D error !";
+        //     DataReset(); 
+        //     return false; 
+        // }
 
-        if (pcl::io::loadPCDFile(file_path, *cloudKeyFrameRot3D_) < 0) {
-            LOG(INFO) << SlamLib::color::RED << "Load Rot3D error !";
-            DataReset();
-            return false;
-        } 
+        // file_path = database_save_path_ +"/Rot3D.pcd";
+
+        // if (pcl::io::loadPCDFile(file_path, *cloudKeyFrameRot3D_) < 0) {
+        //     LOG(INFO) << SlamLib::color::RED << "Load Rot3D error !";
+        //     DataReset();
+        //     return false;
+        // } 
 
         return true; 
     }
@@ -165,11 +214,12 @@ public:
         // 加载vertex数据
         while(1) {
             Vertex vertex;  
-            std::ifstream ifs(database_save_path_ + "/PoseGraph/Vertex/id_" + std::to_string(index));
+            std::ifstream ifs(database_save_path_ + "/Vertex/id_" + std::to_string(index));
             
             if(!ifs) {
                 break;
             }
+
             index++;  
 
             while(!ifs.eof()) {
@@ -187,12 +237,15 @@ public:
                             ifs >> matrix(i, j);
                         }
                     }
+                    
                     vertex.pose_.translation() = matrix.block<3, 1>(0, 3);
                     vertex.pose_.linear() = matrix.block<3, 3>(0, 0);
                     //std::cout<<"vertex.pose_: "<<vertex.pose_.matrix()<<std::endl;
                 }
             }
-            vertex_container_.push_back(std::move(vertex));
+
+            vertex_container_.emplace_back(std::move(vertex));
+            AddPosePoint(vertex.pose_);
         }
         
         if (vertex_container_.size() == 0) {
@@ -207,11 +260,12 @@ public:
         // 加载edge数据
         while(1) {
             Edge edge;  
-            std::ifstream ifs(database_save_path_ + "/PoseGraph/Edge/id_" + std::to_string(index));
+            std::ifstream ifs(database_save_path_ + "/Edge/id_" + std::to_string(index));
             
             if(!ifs) {
                 break;
             }
+
             index++;  
 
             while(!ifs.eof()) {
@@ -235,6 +289,7 @@ public:
                             ifs >> matrix(i, j);
                         }
                     }
+
                     edge.constraint_.translation() = matrix.block<3, 1>(0, 3);
                     edge.constraint_.linear() = matrix.block<3, 3>(0, 0);
                     //std::cout<<"edge.constraint_: "<<edge.constraint_.matrix()<<std::endl;
@@ -245,8 +300,10 @@ public:
                     //std::cout<<"edge.noise_: "<<edge.noise_.matrix()<<std::endl;
                 }
             }
+
             edge_container_.push_back(std::move(edge));
         }
+
         return true; 
     }
 
@@ -278,8 +335,11 @@ public:
      * @param  id               My Param doc
      * @param  pose             My Param doc
      */
-    void AddVertex(uint64_t id, Eigen::Isometry3d const& pose) {
-        vertex_container_.emplace_back(id, pose);
+    void AddVertex(uint64_t const& id, uint32_t const& session, Eigen::Isometry3d const& pose) {
+        // vertex_container_.insert(std::pair(id, Vertex(id, session, pose)));
+        // vertex_container_[id] = Vertex(id, session, pose);
+        globalID_to_localID_[id] = vertex_container_.size();  
+        vertex_container_.emplace_back(id, session, pose);
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -316,8 +376,8 @@ public:
      */
     inline void AddEdge(uint64_t head_id, uint64_t tail_id, Eigen::Isometry3d const& constraint, 
                                     Eigen::Matrix<double, 1, 6> const& noise) {
-        uint64_t id = edge_container_.size();  // 边的标识 
-        edge_container_.emplace_back(id, head_id, tail_id, constraint, noise); 
+        edge_container_.emplace_back(info_.edge_num, head_id, tail_id, constraint, noise); 
+        ++info_.edge_num;
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -352,7 +412,11 @@ public:
     Vertex GetLastVertex() {
         Vertex vertex;  
         boost::shared_lock<boost::shared_mutex> lock(database_mt_); 
-        if (vertex_container_.empty()) return vertex;
+
+        if (vertex_container_.empty()) {
+            return vertex;
+        }
+
         vertex = vertex_container_.back();  
         return vertex;  
     }
@@ -362,7 +426,11 @@ public:
     KeyFrame GetLastKeyFrameData() {
         KeyFrame keyframe;  
         boost::shared_lock<boost::shared_mutex> lock(database_mt_); 
-        if (keyframe_database_.empty()) return keyframe;
+
+        if (keyframe_database_.empty()) {
+            return keyframe;
+        }
+
         keyframe = keyframe_database_.back();  
         return keyframe;  
     }
@@ -471,21 +539,35 @@ public:
             typename pcl::PointCloud<_PointT>::Ptr &curr_points) {
         std::string file_path = database_save_path_ + "/KeyFramePoints/key_frame_" 
                 + name + std::to_string(id) + ".pcd";
-        if (pcl::io::loadPCDFile(file_path, *curr_points) < 0) return false;
+
+        if (pcl::io::loadPCDFile(file_path, *curr_points) < 0) {
+            return false;
+        }
+
         return true;  
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    const Info& GetDataBaseInfo() const {
+        return info_;  
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    uint64_t GetLocalID(uint64_t const& global_id) {
+        return globalID_to_localID_.at(global_id);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
-     * @brief: 根据index获取vertex的pose 
+     * @brief: 根据id获取vertex的pose 
      * @param index
      */            
-    inline bool SearchVertexPose(uint32_t const& index, Eigen::Isometry3d &pose) const {
-        if (vertex_container_.size() <= index) {
+    inline bool SearchVertexPose(uint32_t const& idx, Eigen::Isometry3d &pose) const {
+        if (vertex_container_.size() <= idx) {
             return false;
         }
 
-        pose = vertex_container_[index].pose_;
+        pose = vertex_container_[idx].pose_;
         return true;  
     }
 
@@ -531,13 +613,25 @@ protected:
     PoseGraphDataBase(PoseGraphDataBase&& object) {}
 
 private:
+    Info info_;
     bool has_new_keyframe_ = false; 
     std::string database_save_path_;  
+    std::string session_path_; 
     boost::shared_mutex pose_cloud_mt_, database_mt_, loop_mt_;  
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudKeyFramePosition3D_;  // 历史关键帧位置
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloudKeyFrameRot3D_; // 历史关键帧姿态   四元数形式  
-    std::deque<KeyFrame> keyframe_database_; // 保存全部关键帧的观测信息
+
+
+    /**
+     * @todo  没什么用  准备删除 
+     * 
+     */
+    std::deque<KeyFrame> keyframe_database_; // 保存全部关键帧的观测信息   
+
+
+
     std::deque<Edge> edge_container_; // 保存图节点
     std::deque<Vertex> vertex_container_; // 保存图的边
+    std::unordered_map<uint64_t, uint64_t> globalID_to_localID_;  // 数据库id到位姿图id的映射  
 }; // class 
 } // namespace 

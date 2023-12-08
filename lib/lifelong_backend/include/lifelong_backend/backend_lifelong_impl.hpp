@@ -69,19 +69,14 @@ void LifeLongBackEndOptimization<_FeatureT>::Load() {
 
     work_mode_ = WorkMode::RELOCALIZATION;   // 默认为建图模式 
     LOG(INFO) << SlamLib::color::GREEN << "载入历史数据库，准备重定位......" << SlamLib::color::RESET;
-    // 恢复历史图优化
-    optimizer_->Rebuild(PoseGraphDataBase::GetInstance().GetAllVertex(),  // 所有的顶点
-                                                PoseGraphDataBase::GetInstance().GetAllEdge());    // 所有的边                   
-    // 从优化器中读回节点位姿
-    for(int i=0; i < optimizer_->GetNodeNum(); i++) {
-        PoseGraphDataBase::GetInstance().UpdateVertexPose(i, optimizer_->ReadOptimizedPose(i)); 
-    }
     // 发布在载后的数据 
     KeyFrameInfo<_FeatureT> keyframe_info; 
     keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetAllVertex(); 
     keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetAllEdge(); 
     IPC::Server::Instance().Publish("keyframes_info", keyframe_info); 
     LOG(INFO) << SlamLib::color::GREEN << "历史轨迹可视化发布..." << SlamLib::color::RESET;
+    id_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().keyframe_num;  
+    start_id_ = id_;  
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -156,6 +151,7 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
                 work_mode_ = WorkMode::MAPPING;
                 optimizer_->Reset();  
                 PoseGraphDataBase::GetInstance().DataReset(); 
+                session_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().session_num;  
             }
 
             n++;
@@ -468,35 +464,36 @@ void LifeLongBackEndOptimization<_FeatureT>::mapping() {
 
         PoseGraphDataBase& database = PoseGraphDataBase::GetInstance();  
 
-        if (optimize()) {   
-            SlamLib::time::TicToc tt;
-            // 优化完成后 更新数据库  
-            for(int i=0; i < optimizer_->GetNodeNum(); i++) {
-                database.UpdateVertexPose(i, optimizer_->ReadOptimizedPose(i)); 
-            }
+        // if (optimize()) {   
+        //     std::cout << "optimize ok" << std::endl;
+        //     SlamLib::time::TicToc tt;
+        //     // 优化完成后 更新数据库  
+        //     for(int i=0; i < optimizer_->GetNodeNum(); i++) {
+        //         database.UpdateVertexPose(i, optimizer_->ReadOptimizedPose(i)); 
+        //     }
             
-            tt.toc("update dataset ");
-            this->keyframe_queue_sm_.lock();  
-            // 计算坐标转换矩阵
-            this->trans_odom2map_ = database.GetLastVertex().pose_ 
-                                                                    * database.GetLastKeyFrameData().odom_.inverse();  
-            IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
-            this->keyframe_queue_sm_.unlock();  
+        //     tt.toc("update dataset ");
+        //     this->keyframe_queue_sm_.lock();  
+        //     // 计算坐标转换矩阵
+        //     this->trans_odom2map_ = database.GetLastVertex().pose_ 
+        //                                                             * database.GetLastKeyFrameData().odom_.inverse();  
+        //     IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
+        //     this->keyframe_queue_sm_.unlock();  
 
-            if (has_loop_) {
-                // 进入定位模式前需要更新一下可视化 
-                KeyFrameInfo<_FeatureT> keyframe_info; 
-                keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetAllVertex(); 
-                keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetAllEdge(); 
-                keyframe_info.new_keyframes_ = this->new_keyframe_queue_;  
-                IPC::Server::Instance().Publish("keyframes_info", keyframe_info);   // 发布图关键帧  
+        //     if (has_loop_) {
+        //         // 进入定位模式前需要更新一下可视化 
+        //         KeyFrameInfo<_FeatureT> keyframe_info; 
+        //         keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetAllVertex(); 
+        //         keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetAllEdge(); 
+        //         keyframe_info.new_keyframes_ = this->new_keyframe_queue_;  
+        //         IPC::Server::Instance().Publish("keyframes_info", keyframe_info);   // 发布图关键帧  
 
-                work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
-                std::cout << "建图线程：进入定位模式！" << std::endl;
-                // localization_thread_ = std::thread(&LifeLongBackEndOptimization::localization, this);  
-                has_loop_ = false;  
-            }
-        }
+        //         work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
+        //         std::cout << "建图线程：进入定位模式！" << std::endl;
+        //         // localization_thread_ = std::thread(&LifeLongBackEndOptimization::localization, this);  
+        //         has_loop_ = false;  
+        //     }
+        // }
 
         std::chrono::milliseconds dura(1000);
         std::this_thread::sleep_for(dura);
@@ -523,7 +520,8 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
         // 从keyframe_queue中取出关键帧
         auto& keyframe = this->new_keyframe_queue_[i];
         auto& points = this->new_keyframe_points_queue_[i];  
-        keyframe.id_ = PoseGraphDataBase::GetInstance().ReadVertexNum();
+        keyframe.id_ = id_;
+        ++id_;   
         Eigen::Isometry3d corrected_pose = this->trans_odom2map_ * keyframe.odom_; 
         // 把关键帧点云存储到硬盘里     不消耗内存
         for (auto iter = points.begin(); iter != points.end(); ++iter) {  
@@ -534,12 +532,12 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
         // 点云数据加入到回环模块进行处理
         loop_detect_->AddData(points);    // 点云
         // 添加节点  
-        if (keyframe.id_ == 0) {
+        if (keyframe.id_ == start_id_) {
             // 第一个节点默认 fix
             optimizer_->AddSe3Node(corrected_pose, keyframe.id_, true);
             //  添加到数据库中   图优化中的node 和 数据库中的关键帧 序号是一一对应的
             PoseGraphDataBase::GetInstance().AddKeyFrameData(keyframe);   
-            PoseGraphDataBase::GetInstance().AddVertex(keyframe.id_, corrected_pose);  
+            PoseGraphDataBase::GetInstance().AddVertex(keyframe.id_, session_, corrected_pose);  
             PoseGraphDataBase::GetInstance().AddPosePoint(corrected_pose);  
             continue;
         }
@@ -604,7 +602,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
         }     
         //  添加到数据库中  
         PoseGraphDataBase::GetInstance().AddKeyFrameData(keyframe);   
-        PoseGraphDataBase::GetInstance().AddVertex(keyframe.id_, corrected_pose);  
+        PoseGraphDataBase::GetInstance().AddVertex(keyframe.id_, session_, corrected_pose);  
         PoseGraphDataBase::GetInstance().AddPosePoint(corrected_pose);  
     }
 
@@ -625,14 +623,12 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
 template<typename _FeatureT>         
 bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
     static bool do_optimize = false;  
-    // 提取所有新添加的回环数据
     std::deque<Edge>  new_loops = loop_detect_->GetNewLoops();
 
     if (new_loops.size() > 0) {
         has_loop_ = true;  
-        
+        // 添加回环边
         for (uint16_t i = 0; i < new_loops.size(); i++) {
-            // 添加回环边
             optimizer_->AddSe3Edge(new_loops[i].link_id_.first, new_loops[i].link_id_.second, 
                                                                     new_loops[i].constraint_, new_loops[i].noise_);  
             // 回环数据记录到数据库中
@@ -657,7 +653,6 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
         }  
 
         optimizer_->Optimize(has_loop_);  
-        tt.toc("optimize ");
         do_optimize = false;  
     } else {
         optimize_dormant--;  

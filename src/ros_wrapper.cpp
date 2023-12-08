@@ -6,7 +6,6 @@
  * @Description:  长期建图定位后端  ros1 接口  
  * @Others: 
  */
-
 #include "ros_utils.hpp"
 #include "lifelong_backend/backend_lifelong.h"
 #include "lifelong_backend/InnerComm/InnerProcessComm.hpp"
@@ -205,15 +204,13 @@ visualization_msgs::MarkerArray createMarkerArray(lifelong_backend::KeyFrameInfo
     int i=0;
 
     for (int num = 0; num < info.edge_database_.size(); num++) {
-        // 里程计边    Pc
-        // Eigen::Vector3d pt1 = info.keyframe_database_[num].correct_pose_.translation();
-        // // Twc*Tlc^-1 = Twl
-        // Eigen::Vector3d pt2 = (info.keyframe_database_[num].correct_pose_ 
-        //     * info.keyframe_database_[num].between_constraint_.inverse()).translation();
-        Eigen::Vector3d pt1 = info.vertex_database_[info.edge_database_[num].link_id_.first].pose_.translation();
+        uint64_t local_id = lifelong_backend::PoseGraphDataBase::GetInstance().GetLocalID(info.edge_database_[num].link_id_.first); 
+        Eigen::Vector3d pt1 = 
+            info.vertex_database_[local_id].pose_.translation();
         // Twc*Tlc^-1 = Twl
-        Eigen::Vector3d pt2 = (info.vertex_database_[info.edge_database_[num].link_id_.first].pose_
-            * info.edge_database_[num].constraint_).translation();
+        Eigen::Vector3d pt2 = 
+            (info.vertex_database_[local_id].pose_
+                * info.edge_database_[num].constraint_).translation();
         // 设置位置关系     每个frame 2个点 
         edge_marker.points[i*2].x = pt1.x();
         edge_marker.points[i*2].y = pt1.y();
@@ -311,6 +308,7 @@ visualization_msgs::MarkerArray createMarkerArray(lifelong_backend::KeyFrameInfo
         sphere_marker.color.r = 1.0;
         sphere_marker.color.a = 0.3;
     }
+
     return markers;
 }
 
