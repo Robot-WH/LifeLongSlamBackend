@@ -623,7 +623,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
 template<typename _FeatureT>         
 bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
     static bool do_optimize = false;  
-    std::deque<Edge>  new_loops = loop_detect_->GetNewLoops();
+    std::deque<LoopEdge>  new_loops = loop_detect_->GetNewLoops();
 
     if (new_loops.size() > 0) {
         has_loop_ = true;  

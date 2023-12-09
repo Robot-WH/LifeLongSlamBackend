@@ -30,7 +30,7 @@ private:
         uint32_t edge_num; 
     };
 public:
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief: 单例的创建函数  
      */            
@@ -39,7 +39,7 @@ public:
         return PoseGraph_dataBase; 
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief: 保存数据
      * @details pose-graph的数据 保存在 session 中  
@@ -71,7 +71,7 @@ public:
         ofs << "edge_num " << info_.edge_num << "\n";
     }
     
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief: 从指定路径中加载数据库  
      */            
@@ -144,7 +144,7 @@ public:
         return true; 
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief 
      * @return true 
@@ -203,7 +203,7 @@ public:
     //     return true; 
     // }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief 
      * @return true 
@@ -241,6 +241,8 @@ public:
                     vertex.pose_.translation() = matrix.block<3, 1>(0, 3);
                     vertex.pose_.linear() = matrix.block<3, 3>(0, 0);
                     //std::cout<<"vertex.pose_: "<<vertex.pose_.matrix()<<std::endl;
+                } else if (token == "session") {
+                    ifs >> vertex.session_; 
                 }
             }
 
@@ -307,7 +309,7 @@ public:
         return true; 
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief Set the Save Path object
      * @param  database_save_pathMy Param doc
@@ -316,7 +318,7 @@ public:
         database_save_path_ = database_save_path; 
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief 添加一个关键帧的数据
      * @param  keyframe  关键帧
@@ -329,7 +331,7 @@ public:
         has_new_keyframe_ = true; 
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief 添加一个位姿图节点
      * @param  id               My Param doc
@@ -342,7 +344,7 @@ public:
         vertex_container_.emplace_back(id, session, pose);
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief 添加一个位姿到位姿点云 
      * @param  pose             My Param doc
@@ -366,7 +368,7 @@ public:
         pose_cloud_mt_.unlock();  
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
     /**
      * @brief 添加一个位姿图边 
      * @param  head_id  首节点id
@@ -380,15 +382,22 @@ public:
         ++info_.edge_num;
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 重载
-    inline void AddEdge(Edge &edge) {
-        edge.id_ = edge_container_.size(); 
+    /**
+     * @brief 重载
+     * 
+     * @param edge 
+     */
+    inline void AddEdge(Edge& edge) {
+        edge.id_ = info_.edge_num; 
         edge_container_.push_back(edge); 
+        ++info_.edge_num;
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 读取当前posegraph中节点的数量 
+    /**
+     * @brief 读取当前posegraph中节点的数量 
+     * 
+     * @return uint64_t 
+     */
     uint64_t ReadVertexNum() {
         database_mt_.lock_shared();
         uint64_t num = vertex_container_.size();
@@ -396,8 +405,14 @@ public:
         return num;  
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 添加一个关键帧的点云数据 
+    /**
+     * @brief 添加一个关键帧的点云数据 
+     * 
+     * @tparam _PointT 
+     * @param name 
+     * @param KF_index 
+     * @param pointcloud 
+     */
     template<typename _PointT>
     void AddKeyFramePointCloud(std::string const& name, 
                                                                     uint32_t const& KF_index, 
@@ -407,8 +422,11 @@ public:
         pcl::io::savePCDFileBinary(file_path, pointcloud);
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 获取最后一个节点
+    /**
+     * @brief Get the Last Vertex object  
+     * 
+     * @return Vertex 
+     */
     Vertex GetLastVertex() {
         Vertex vertex;  
         boost::shared_lock<boost::shared_mutex> lock(database_mt_); 
@@ -421,8 +439,56 @@ public:
         return vertex;  
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 获取最后一个关键帧数据
+    /**
+     * @brief Get the Vertex By ID object
+     * 
+     * @return Vertex 
+     */
+    Vertex GetVertexByID(uint64_t id) {
+        // 如果在内存中直接读取
+        if (globalID_to_localID_.find(id) != globalID_to_localID_.end()) {
+            return vertex_container_[globalID_to_localID_.at(id)];
+        }
+        // 读取磁盘  构造vertex 
+        Vertex vertex; 
+        std::ifstream ifs(database_save_path_ + "/Vertex/id_" + std::to_string(id));
+
+        if(!ifs) {
+            return vertex;
+        }
+
+        while(!ifs.eof()) {
+            std::string token;
+            ifs >> token;
+
+            if (token == "id") {
+                ifs >> vertex.id_; 
+                //std::cout<<"vertex.id: "<<vertex.id_<<std::endl;
+            } else if (token == "pose") {
+                Eigen::Matrix4d matrix; 
+
+                for(int i = 0; i < 4; i++) {
+                    for(int j = 0; j < 4; j++) {
+                        ifs >> matrix(i, j);
+                    }
+                }
+
+                vertex.pose_.translation() = matrix.block<3, 1>(0, 3);
+                vertex.pose_.linear() = matrix.block<3, 3>(0, 0);
+                //std::cout<<"vertex.pose_: "<<vertex.pose_.matrix()<<std::endl;
+            } else if (token == "session") {
+                ifs >> vertex.session_; 
+            }
+        }
+
+        return vertex;  
+    }
+
+    /**
+     * @brief Get the Last Key Frame Data object
+     * 
+     * @return KeyFrame 
+     */
     KeyFrame GetLastKeyFrameData() {
         KeyFrame keyframe;  
         boost::shared_lock<boost::shared_mutex> lock(database_mt_); 
@@ -435,8 +501,13 @@ public:
         return keyframe;  
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 获取最新添加的keyframe 
+    /**
+     * @brief Get the New Key Frame object
+     * 
+     * @param keyframe 
+     * @return true 
+     * @return false 
+     */
     bool GetNewKeyFrame(KeyFrame &keyframe) {
         if (!has_new_keyframe_) return false;  
         boost::shared_lock<boost::shared_mutex> lock(database_mt_); 
@@ -445,38 +516,55 @@ public:
         return true;  
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief Get the Key Frame DataBase object
+     * 
+     * @return std::deque<KeyFrame> const& 
+     */
     std::deque<KeyFrame> const& GetKeyFrameDataBase() {
         return keyframe_database_;
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief Get the All Vertex object
+     * 
+     * @return std::deque<Vertex> const& 
+     */
     std::deque<Vertex> const& GetAllVertex() {
         return vertex_container_;
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief Get the All Edge object
+     * 
+     * @return std::deque<Edge> const& 
+     */
     std::deque<Edge> const& GetAllEdge() {
         return edge_container_;
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 获取位置点云
+    /**
+     * @brief Get the Key Frame Position Cloud object 获取位置点云
+     * 
+     * @return pcl::PointCloud<pcl::PointXYZ>::Ptr 
+     */
     pcl::PointCloud<pcl::PointXYZ>::Ptr GetKeyFramePositionCloud() {
         boost::shared_lock<boost::shared_mutex> lock(pose_cloud_mt_); 
         return pcl::PointCloud<pcl::PointXYZ>::Ptr(
             new pcl::PointCloud<pcl::PointXYZ>(*cloudKeyFramePosition3D_));
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // 获取姿态点云
+    /**
+     * @brief Get the Key Frame Rot Cloud object获取姿态点云
+     * 
+     * @return pcl::PointCloud<pcl::PointXYZI>::Ptr 
+     */
     pcl::PointCloud<pcl::PointXYZI>::Ptr GetKeyFrameRotCloud() {
         boost::shared_lock<boost::shared_mutex> lock(pose_cloud_mt_); 
         return pcl::PointCloud<pcl::PointXYZI>::Ptr(
             new pcl::PointCloud<pcl::PointXYZI>(*cloudKeyFrameRot3D_));
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 获取以一个节点为中心，前后若干个连续相邻节点共同组成的local map 
      * @param center_id localmap的中心节点 id 
@@ -526,7 +614,6 @@ public:
         return true;  
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 获取keyframe 的一个 名字为 name 的点云数据 
      * @param name 点云名称
@@ -547,17 +634,25 @@ public:
         return true;  
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief Get the DataBase Info object
+     * 
+     * @return const Info& 
+     */
     const Info& GetDataBaseInfo() const {
         return info_;  
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief Get the Local ID object   即Pose-graph中的node id  
+     * 
+     * @param global_id 
+     * @return uint64_t 
+     */
     uint64_t GetLocalID(uint64_t const& global_id) {
         return globalID_to_localID_.at(global_id);
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 根据id获取vertex的pose 
      * @param index
@@ -571,7 +666,12 @@ public:
         return true;  
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief 
+     * 
+     * @param id 
+     * @param correct_pose 
+     */
     inline void UpdateVertexPose(uint32_t id, Eigen::Isometry3d correct_pose) {
         boost::unique_lock<boost::shared_mutex> lock1(database_mt_);    // 写锁 
         boost::unique_lock<boost::shared_mutex> lock2(pose_cloud_mt_);    // 写锁 
@@ -588,7 +688,10 @@ public:
         cloudKeyFrameRot3D_->points[id].intensity = q.w();   
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief 
+     * 
+     */
     void DataReset() {
         cloudKeyFramePosition3D_->clear();
         cloudKeyFrameRot3D_->clear();
@@ -621,13 +724,11 @@ private:
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudKeyFramePosition3D_;  // 历史关键帧位置
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloudKeyFrameRot3D_; // 历史关键帧姿态   四元数形式  
 
-
     /**
      * @todo  没什么用  准备删除 
      * 
      */
     std::deque<KeyFrame> keyframe_database_; // 保存全部关键帧的观测信息   
-
 
 
     std::deque<Edge> edge_container_; // 保存图节点
