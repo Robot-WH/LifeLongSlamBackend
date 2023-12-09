@@ -18,7 +18,7 @@
 #include "../Common/keyframe.hpp"
 #include "SceneRecognitionScanContext.hpp"
 namespace lifelong_backend {
-#define LOOP_DEBUG 0
+#define LOOP_DEBUG 1
 
 struct LoopDetectionOption {
     double score_thresh;
@@ -394,6 +394,7 @@ protected:
                         //     continue;   // 回环不会出现，因此直接跳出
                         // }
                         // tt.tic(); 
+                        continue;  
                     } else {
                         // 获取回环的结点信息
                         vertex = poseGraph_database.GetVertexByID(res.first);          
@@ -434,7 +435,7 @@ protected:
                 for (auto const& name : rough_registration_specific_labels_) {   
                     // local map 
                     typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
-                    
+                    std::cout << "粗匹配提取点云,name: " << name << std::endl;
                     if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(
                                 res.first, 
                                 5,  // 前后5个帧组成local map  
@@ -528,7 +529,7 @@ protected:
                     
                     if (!poseGraph_database.GetKeyFramePointCloud<_PointType>(evaluative_pointcloud_label_, 
                             curr_keyframe_.id_, evaluative_curr_scan_temp)) {
-                        std::cout << SlamLib::color::RED << "Find evaluative curr points ERROR, name: "
+                        std::cout << SlamLib::color::RED << "Find evaluative curr points error, name: "
                             << evaluative_pointcloud_label_ << SlamLib::color::RESET << std::endl;
                         continue;  
                     }
@@ -562,6 +563,7 @@ protected:
                     #endif
                     continue;  
                 }
+                continue;
                 // 添加新增回环边
                 LoopEdge new_loop; 
                 new_loop.session_ = vertex.session_;  

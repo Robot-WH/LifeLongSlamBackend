@@ -567,6 +567,7 @@ public:
 
     /**
      * @brief: 获取以一个节点为中心，前后若干个连续相邻节点共同组成的local map 
+     *  @details 注意，由于Multi-session,数据库中连续的若干帧不一定真正在时序上连续 
      * @param center_id localmap的中心节点 id 
      * @param neighbors_num 中心节点前/后 邻居个数 
      * @param points_name 点云的标识名
@@ -577,36 +578,49 @@ public:
     bool GetAdjacentLinkNodeLocalMap(uint64_t const& center_id, uint16_t const& neighbors_num, 
                                                                                 std::string const& points_name, 
                                                                                 typename pcl::PointCloud<_PointT>::ConstPtr &local_map) {
-        uint64_t keyframe_num = cloudKeyFramePosition3D_->size();  
         pcl::PointCloud<_PointT> origin_points;   // 激光坐标系下的点云
         pcl::PointCloud<_PointT> trans_points;   // 转换到世界坐标系下的点云 
         typename pcl::PointCloud<_PointT>::Ptr map(new pcl::PointCloud<_PointT>()); 
+        Vertex loop_vertex = GetVertexByID(center_id);
+        std::cout << "loop_vertex session: " << loop_vertex.session_
+            << ", id: " << loop_vertex.id_ << std::endl;
 
         for (int16_t i = -neighbors_num; i <= neighbors_num; i++ ) {
-            int64_t index = center_id + i;
+            int64_t curr_id = center_id + i;
+            std::cout << "curr_id: " << curr_id << std::endl;
+            Vertex curr_vertex = GetVertexByID(curr_id);
             // 处理边界
-            if (index < 0) {
-                index += 2 * neighbors_num + 1;
-            }
-
-            if (index >= keyframe_num) {
-                index -= (2 * neighbors_num + 1); 
+            if (curr_id < 0) {
+                curr_id += 2 * neighbors_num + 1;
+                std::cout << "curr_id < 0, adjust: " << curr_id << std::endl;
+            }else if (curr_id >= info_.keyframe_num) {
+                curr_id -= (2 * neighbors_num + 1); 
+                std::cout << "curr_id >= info_.keyframe_num, adjust: " << curr_id << std::endl;
+            } else if (loop_vertex.session_ != curr_vertex.session_) {
+                // 进入不同的session了 
+                if (i >= 0) {
+                    curr_id -= (2 * neighbors_num + 1); 
+                    std::cout << "loop_vertex.session_ != curr_vertex.session_, i >= 0, adjust: " << curr_id << std::endl;
+                } else {
+                    curr_id += (2 * neighbors_num + 1);
+                    std::cout << "loop_vertex.session_ != curr_vertex.session_, i < 0, adjust: " << curr_id << std::endl;
+                }
             }
 
             std::string file_path = database_save_path_ + "/KeyFramePoints/key_frame_" 
-                + points_name + std::to_string(index) + ".pcd";
+                + points_name + std::to_string(curr_id) + ".pcd";
 
             if (pcl::io::loadPCDFile(file_path, origin_points) < 0) {
                 return false;
             }
 
-            Eigen::Isometry3d pose;
-            // 如果没有查到该帧的位姿  那么就失败 
-            if (!SearchVertexPose(index, pose)) {
-                return false;  
-            }
+            // Eigen::Isometry3d pose;
+            // // 如果没有查到该帧的位姿  那么就失败 
+            // if (!SearchVertexPose(curr_id, pose)) {
+            //     return false;  
+            // }
 
-            pcl::transformPointCloud (origin_points, trans_points, pose.matrix()); // 转到世界坐标  
+            pcl::transformPointCloud (origin_points, trans_points, curr_vertex.pose_.matrix()); // 转到世界坐标  
             *map += trans_points; 
         }
 
