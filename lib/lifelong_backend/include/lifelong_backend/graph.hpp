@@ -11,6 +11,7 @@
 #include <Eigen/Dense>
 #include <boost/filesystem.hpp>
 namespace lifelong_backend {
+
 /**
  * @brief: pose-graph 顶点
  */
@@ -52,9 +53,9 @@ struct Vertex {
 struct Edge {
     // 边类型 
     Edge() {}
-    Edge(uint64_t id, uint64_t head_id, uint64_t tail_id, Eigen::Isometry3d const& constraint, 
-                Eigen::Matrix<double, 1, 6> const& noise) : id_(id), link_id_(head_id, tail_id), 
-                                                                                                    constraint_(constraint), noise_(noise) {}
+    Edge(int16_t const& traj, uint64_t id, uint64_t head_id, uint64_t tail_id, 
+                Eigen::Isometry3d const& constraint, Eigen::Matrix<double, 1, 6> const& noise) 
+                : traj_(traj), id_(id), link_id_(head_id, tail_id), constraint_(constraint), noise_(noise) {}
 
     /**
      * @brief 
@@ -67,6 +68,7 @@ struct Edge {
         }
 
         std::ofstream ofs(path + "/Edge/id_" + std::to_string(id_));
+        ofs << "traj " << traj_ << "\n";
         ofs << "id " << id_ << "\n";
         ofs << "link_head\n";
         ofs << link_id_.first <<"\n";
@@ -81,8 +83,9 @@ struct Edge {
     void Load() {
     }
 
-    uint64_t id_ = 0; 
-    std::pair<uint64_t, uint64_t> link_id_{-1, -1};     // 该边 连接的 节点 id 
+    int16_t traj_ = -1;     // 该edge所属的轨迹
+    uint64_t id_ = 0;   // 该边的全局id  
+    std::pair<uint64_t, uint64_t> link_id_{-1, -1};     // 该边 连接的 节点 全局id 
     Eigen::Isometry3d constraint_ = Eigen::Isometry3d::Identity();
     Eigen::Matrix<double, 1, 6> noise_ = Eigen::Matrix<double, 1, 6>::Zero();     // 6 dof 约束的 噪声 向量  xyz  + rpy
 }; 
@@ -93,9 +96,9 @@ struct Edge {
  */
 struct LoopEdge : public Edge {
     LoopEdge() {}
-    LoopEdge(uint64_t id, uint32_t session, uint64_t head_id, uint64_t tail_id, 
+    LoopEdge(int16_t traj, uint64_t id, int16_t loop_traj, uint64_t head_id, uint64_t tail_id, 
     Eigen::Isometry3d const& constraint, Eigen::Matrix<double, 1, 6> const& noise) 
-        : Edge(id,head_id, tail_id, constraint,noise), session_(session) {}
-    uint32_t session_ = 0;
+        : Edge(traj, id, head_id, tail_id, constraint, noise), loop_traj_(loop_traj) {}
+    int16_t loop_traj_ = -1;   // 闭环的轨迹的id   
 };
 }

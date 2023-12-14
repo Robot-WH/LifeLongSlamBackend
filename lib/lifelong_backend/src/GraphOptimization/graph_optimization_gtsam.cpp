@@ -55,17 +55,20 @@ bool GtsamGraphOptimizer::Optimize(uint8_t flag) {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // 输出数据
-bool GtsamGraphOptimizer::GetAllOptimizedPose(std::deque<Eigen::Matrix4f>& optimized_pose) {
+bool GtsamGraphOptimizer::GetAllGraphNodePose(std::deque<Eigen::Matrix4f>& optimized_pose) {
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-Eigen::Isometry3d GtsamGraphOptimizer::ReadOptimizedPose(uint64_t const& id) {
+Eigen::Isometry3d GtsamGraphOptimizer::GetNodePose(uint64_t const& id) {
     assert(id < isamCurrentEstimate.size());
     Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
     pose.translation() = isamCurrentEstimate.at<Pose3>(id).translation();
     pose.linear() = isamCurrentEstimate.at<Pose3>(id).rotation().matrix(); 
     return pose;  
 }
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void GtsamGraphOptimizer::SetNodePose(uint64_t const& id, Eigen::Isometry3d const& pose) {}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 uint64_t GtsamGraphOptimizer::GetNodeNum() {

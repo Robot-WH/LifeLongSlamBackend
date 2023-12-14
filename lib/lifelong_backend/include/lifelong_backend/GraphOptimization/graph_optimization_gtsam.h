@@ -40,8 +40,9 @@ public:
     bool Optimize(uint8_t flag = 0) override;
 
     // 输出数据
-    bool GetAllOptimizedPose(std::deque<Eigen::Matrix4f>& optimized_pose) override;
-    Eigen::Isometry3d ReadOptimizedPose(uint64_t const& id) override;
+    bool GetAllGraphNodePose(std::deque<Eigen::Matrix4f>& optimized_pose) override;
+    Eigen::Isometry3d GetNodePose(uint64_t const& id) override;
+    void SetNodePose(uint64_t const& id, Eigen::Isometry3d const& pose) override; 
     uint64_t GetNodeNum() override;
     // 添加节点、边、鲁棒核
     void SetEdgeRobustKernel(std::string robust_kernel_name, double robust_kernel_size) override;

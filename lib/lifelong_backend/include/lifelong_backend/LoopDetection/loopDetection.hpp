@@ -18,7 +18,7 @@
 #include "../Common/keyframe.hpp"
 #include "SceneRecognitionScanContext.hpp"
 namespace lifelong_backend {
-#define LOOP_DEBUG 1
+#define LOOP_DEBUG 0
 
 struct LoopDetectionOption {
     double score_thresh;
@@ -563,10 +563,9 @@ protected:
                     #endif
                     continue;  
                 }
-                continue;
                 // 添加新增回环边
                 LoopEdge new_loop; 
-                new_loop.session_ = vertex.session_;  
+                new_loop.loop_traj_ = vertex.session_;  
                 new_loop.link_id_.first = res.first;
                 new_loop.link_id_.second = curr_keyframe_.id_;
                 Eigen::Isometry3d historical_pose;

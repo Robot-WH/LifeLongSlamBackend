@@ -104,7 +104,7 @@ void G2oGraphOptimizer::Reset() {
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool G2oGraphOptimizer::GetAllOptimizedPose(std::deque<Eigen::Matrix4f>& optimized_pose) {
+bool G2oGraphOptimizer::GetAllGraphNodePose(std::deque<Eigen::Matrix4f>& optimized_pose) {
     optimized_pose.clear();
     int vertex_num = graph_ptr_->vertices().size();
 
@@ -118,11 +118,17 @@ bool G2oGraphOptimizer::GetAllOptimizedPose(std::deque<Eigen::Matrix4f>& optimiz
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-Eigen::Isometry3d G2oGraphOptimizer::ReadOptimizedPose(uint64_t const& id) {
-    assert(id < graph_ptr_->vertices().size());
+Eigen::Isometry3d G2oGraphOptimizer::GetNodePose(uint64_t const& id) {
     g2o::VertexSE3* v = dynamic_cast<g2o::VertexSE3*>(graph_ptr_->vertex(id));
     Eigen::Isometry3d pose = v->estimate();
     return pose;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void G2oGraphOptimizer::SetNodePose(uint64_t const& id, Eigen::Isometry3d const& pose) {
+    g2o::VertexSE3* v = dynamic_cast<g2o::VertexSE3*>(graph_ptr_->vertex(id));
+    v->setEstimate(pose);
+    return;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

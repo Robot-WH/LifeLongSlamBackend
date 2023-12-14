@@ -464,36 +464,42 @@ void LifeLongBackEndOptimization<_FeatureT>::mapping() {
 
         PoseGraphDataBase& database = PoseGraphDataBase::GetInstance();  
 
-        // if (optimize()) {   
-        //     std::cout << "optimize ok" << std::endl;
-        //     SlamLib::time::TicToc tt;
-        //     // 优化完成后 更新数据库  
-        //     for(int i=0; i < optimizer_->GetNodeNum(); i++) {
-        //         database.UpdateVertexPose(i, optimizer_->ReadOptimizedPose(i)); 
-        //     }
+        if (optimize()) {   
+            // std::cout << "optimize ok" << std::endl;
+            SlamLib::time::TicToc tt;
+            // 优化完成后 更新数据库  
+            // for(int i=0; i < optimizer_->GetNodeNum(); i++) {
+            //     database.UpdateVertexPose(i, optimizer_->ReadOptimizedPose(i)); 
+            // }
+            auto& all_vertexs = database.GetAllVertex();
+
+            for (auto& vertex : all_vertexs) {
+                vertex.pose_ = optimizer_->GetNodePose(vertex.id_); 
+            }
             
-        //     tt.toc("update dataset ");
-        //     this->keyframe_queue_sm_.lock();  
-        //     // 计算坐标转换矩阵
-        //     this->trans_odom2map_ = database.GetLastVertex().pose_ 
-        //                                                             * database.GetLastKeyFrameData().odom_.inverse();  
-        //     IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
-        //     this->keyframe_queue_sm_.unlock();  
+            tt.toc("update dataset ");
+            this->keyframe_queue_sm_.lock();  
+            KeyFrame last_keyframe = database.GetLastKeyFrameData(); 
+            // 计算坐标转换矩阵
+            this->trans_odom2map_ = 
+                optimizer_->GetNodePose(last_keyframe.id_) * last_keyframe.odom_.inverse();  
+            IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
+            this->keyframe_queue_sm_.unlock();  
 
-        //     if (has_loop_) {
-        //         // 进入定位模式前需要更新一下可视化 
-        //         KeyFrameInfo<_FeatureT> keyframe_info; 
-        //         keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetAllVertex(); 
-        //         keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetAllEdge(); 
-        //         keyframe_info.new_keyframes_ = this->new_keyframe_queue_;  
-        //         IPC::Server::Instance().Publish("keyframes_info", keyframe_info);   // 发布图关键帧  
+            // if (has_loop_) {
+            //     // 进入定位模式前需要更新一下可视化 
+            //     KeyFrameInfo<_FeatureT> keyframe_info; 
+            //     keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetAllVertex(); 
+            //     keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetAllEdge(); 
+            //     keyframe_info.new_keyframes_ = this->new_keyframe_queue_;  
+            //     IPC::Server::Instance().Publish("keyframes_info", keyframe_info);   // 发布图关键帧  
 
-        //         work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
-        //         std::cout << "建图线程：进入定位模式！" << std::endl;
-        //         // localization_thread_ = std::thread(&LifeLongBackEndOptimization::localization, this);  
-        //         has_loop_ = false;  
-        //     }
-        // }
+            //     // work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
+            //     // std::cout << "建图线程：进入定位模式！" << std::endl;
+            //     // localization_thread_ = std::thread(&LifeLongBackEndOptimization::localization, this);  
+            //     has_loop_ = false;  
+            // }
+        }
 
         std::chrono::milliseconds dura(1000);
         std::this_thread::sleep_for(dura);
@@ -552,7 +558,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
         }
 
         optimizer_->AddSe3Edge(keyframe.adjacent_id_, keyframe.id_, keyframe.between_constraint_, noise);  
-        PoseGraphDataBase::GetInstance().AddEdge(keyframe.adjacent_id_, keyframe.id_, 
+        PoseGraphDataBase::GetInstance().AddEdge(session_, keyframe.adjacent_id_, keyframe.id_, 
                                                                                                         keyframe.between_constraint_, noise);  
 
         // 与GNSS进行匹配 
@@ -629,6 +635,54 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
         has_loop_ = true;  
         // 添加回环边
         for (uint16_t i = 0; i < new_loops.size(); i++) {
+            // 与不同session的轨迹发生了回环，较晚的session与较早的session对齐 
+            if (new_loops[i].loop_traj_ != session_) {
+                std::deque<Vertex> loop_session_vertexs;  
+                // 提取出回环session的全部节点  
+                PoseGraphDataBase::GetInstance().GetSessionVertex(new_loops[i].loop_traj_, loop_session_vertexs);  
+                std::cout << "loop session: " << new_loops[i].loop_traj_ << ", 节点数量： " 
+                    << loop_session_vertexs.size() << std::endl;
+                Eigen::Isometry3d correct = Eigen::Isometry3d::Identity();
+                
+                if (new_loops[i].loop_traj_ < session_) {
+                    // 当前建图的轨迹与历史回环轨迹对齐(当前轨迹的节点转换到回环轨迹的参考坐标系上)
+                    Vertex loop_vertex = PoseGraphDataBase::GetInstance().GetVertexByID(new_loops[i].link_id_.first);  
+                    Vertex curr_vertex = PoseGraphDataBase::GetInstance().GetVertexByID(new_loops[i].link_id_.second);  
+                    Eigen::Isometry3d correct = (loop_vertex.pose_ * new_loops[i].constraint_) * curr_vertex.pose_.inverse();
+                    // 需要对当前轨迹的数据转换到回环轨迹的坐标系上 
+                    auto& all_vertex = PoseGraphDataBase::GetInstance().GetAllVertex();  
+                    // 重新设置当前轨迹的位姿和轨迹编号 
+                    for (auto& vertex : all_vertex) {
+                        vertex.pose_ = correct * vertex.pose_;  
+                        vertex.session_ = new_loops[i].loop_traj_;
+                        optimizer_->SetNodePose(vertex.id_, vertex.pose_); 
+                    }
+
+                    session_ = new_loops[i].loop_traj_;
+                } else {
+                }
+                
+                for (auto& vertex : loop_session_vertexs) {
+                    if (new_loops[i].loop_traj_ > session_) {
+                        // 回环轨迹转换到当前轨迹坐标系上 
+                        vertex.pose_ = correct * vertex.pose_;
+                        vertex.session_ = session_;  
+                    } 
+                    // 添加回环轨迹节点
+                    PoseGraphDataBase::GetInstance().AddVertex(vertex.id_, vertex.session_, vertex.pose_);  
+                    optimizer_->AddSe3Node(vertex.pose_, vertex.id_); 
+                }
+                // 从数据库磁盘中加载对应轨迹的边  
+                std::deque<Edge> loop_trajectory_edges;  
+                PoseGraphDataBase::GetInstance().GetTrajectoryEdge(new_loops[i].loop_traj_, loop_trajectory_edges);
+
+                for (auto& edge : loop_trajectory_edges) {
+                    optimizer_->AddSe3Edge(edge.link_id_.first, edge.link_id_.second, 
+                                                        edge.constraint_, edge.noise_);  
+                    PoseGraphDataBase::GetInstance().AddEdge(edge);
+                }
+            }
+            
             optimizer_->AddSe3Edge(new_loops[i].link_id_.first, new_loops[i].link_id_.second, 
                                                                     new_loops[i].constraint_, new_loops[i].noise_);  
             // 回环数据记录到数据库中

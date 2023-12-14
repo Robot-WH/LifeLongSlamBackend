@@ -340,7 +340,7 @@ public:
     void AddVertex(uint64_t const& id, uint32_t const& session, Eigen::Isometry3d const& pose) {
         // vertex_container_.insert(std::pair(id, Vertex(id, session, pose)));
         // vertex_container_[id] = Vertex(id, session, pose);
-        globalID_to_localID_[id] = vertex_container_.size();  
+        global_to_local_ID_[id] = vertex_container_.size();  
         vertex_container_.emplace_back(id, session, pose);
     }
 
@@ -376,9 +376,9 @@ public:
      * @param  constraint   边位姿约束
      * @param  noise    约束协方差
      */
-    inline void AddEdge(uint64_t head_id, uint64_t tail_id, Eigen::Isometry3d const& constraint, 
-                                    Eigen::Matrix<double, 1, 6> const& noise) {
-        edge_container_.emplace_back(info_.edge_num, head_id, tail_id, constraint, noise); 
+    inline void AddEdge(int16_t const& traj, uint64_t const& head_id, uint64_t const& tail_id, 
+            Eigen::Isometry3d const& constraint, Eigen::Matrix<double, 1, 6> const& noise) {
+        edge_container_.emplace_back(traj, info_.edge_num, head_id, tail_id, constraint, noise); 
         ++info_.edge_num;
     }
 
@@ -444,10 +444,10 @@ public:
      * 
      * @return Vertex 
      */
-    Vertex GetVertexByID(uint64_t id) {
+    Vertex GetVertexByID(uint64_t id) const {
         // 如果在内存中直接读取
-        if (globalID_to_localID_.find(id) != globalID_to_localID_.end()) {
-            return vertex_container_[globalID_to_localID_.at(id)];
+        if (global_to_local_ID_.find(id) != global_to_local_ID_.end()) {
+            return vertex_container_[global_to_local_ID_.at(id)];
         }
         // 读取磁盘  构造vertex 
         Vertex vertex; 
@@ -530,8 +530,120 @@ public:
      * 
      * @return std::deque<Vertex> const& 
      */
-    std::deque<Vertex> const& GetAllVertex() {
+    std::deque<Vertex>& GetAllVertex() {
         return vertex_container_;
+    }
+
+    /**
+     * @brief Get the Session Vertex object
+     * 
+     * @param session 
+     * @return std::deque<Vertex> const& 
+     */
+    void GetSessionVertex(uint16_t const& session, std::deque<Vertex>& session_vertexs) {
+        Vertex vertex;  
+        uint64_t index = 0; 
+
+        while(1) {
+            std::ifstream ifs(database_save_path_ + "/Vertex/id_" + std::to_string(index));
+            
+            if(!ifs) {
+                break;
+            }
+
+            index++;  
+
+            while(!ifs.eof()) {
+                std::string token;
+                ifs >> token;
+
+                if (token == "id") {
+                    ifs >> vertex.id_; 
+                    //std::cout<<"vertex.id: "<<vertex.id_<<std::endl;
+                } else if (token == "pose") {
+                    Eigen::Matrix4d matrix; 
+
+                    for(int i = 0; i < 4; i++) {
+                        for(int j = 0; j < 4; j++) {
+                            ifs >> matrix(i, j);
+                        }
+                    }
+                    
+                    vertex.pose_.translation() = matrix.block<3, 1>(0, 3);
+                    vertex.pose_.linear() = matrix.block<3, 3>(0, 0);
+                    //std::cout<<"vertex.pose_: "<<vertex.pose_.matrix()<<std::endl;
+                } else if (token == "session") {
+                    ifs >> vertex.session_; 
+                }
+            }
+            if (vertex.session_ != session)  
+                continue;  
+            session_vertexs.emplace_back(std::move(vertex));
+        }
+    }
+
+    /**
+     * @brief Get the Session Edge object  获取某一个轨迹的所有边   
+     * 
+     * @param session 
+     * @param session_vertexs 
+     */
+    void GetTrajectoryEdge(uint16_t const& traj, std::deque<Edge>& traj_edges) {
+        Edge edge;  
+        uint64_t index = 0; 
+
+        while(1) {
+            std::ifstream ifs(database_save_path_ + "/Edge/id_" + std::to_string(index));
+            
+            if(!ifs) {
+                break;
+            }
+
+            index++;  
+
+            while(!ifs.eof()) {
+                std::string token;
+                ifs >> token;
+
+                if (token == "traj") {
+                    ifs >> edge.traj_; 
+
+                    if (edge.traj_ != traj) {
+                        break;
+                    }
+                } else if (token == "id") {
+                    ifs >> edge.id_; 
+                    //std::cout<<"edge.id: "<<edge.id_<<std::endl;
+                } else if (token == "link_head") {
+                    ifs >> edge.link_id_.first; 
+                    //std::cout<<"link_head: "<<edge.link_id_.first<<std::endl;
+                } else if (token == "link_tail") {
+                    ifs >> edge.link_id_.second; 
+                    //std::cout<<"link_tail: "<<edge.link_id_.second<<std::endl;
+                } else if (token == "constraint") {
+                    Eigen::Matrix4d matrix; 
+
+                    for(int i = 0; i < 4; i++) {
+                        for(int j = 0; j < 4; j++) {
+                            ifs >> matrix(i, j);
+                        }
+                    }
+
+                    edge.constraint_.translation() = matrix.block<3, 1>(0, 3);
+                    edge.constraint_.linear() = matrix.block<3, 3>(0, 0);
+                    //std::cout<<"edge.constraint_: "<<edge.constraint_.matrix()<<std::endl;
+                } else if (token == "noise") {
+                    for(int i = 0; i < 6; i++) {
+                            ifs >> edge.noise_(0, i);
+                    }
+                    //std::cout<<"edge.noise_: "<<edge.noise_.matrix()<<std::endl;
+                }
+            }
+
+            if (edge.traj_ == traj) {
+                traj_edges.push_back(edge);
+            }
+        }
     }
 
     /**
@@ -614,12 +726,6 @@ public:
                 return false;
             }
 
-            // Eigen::Isometry3d pose;
-            // // 如果没有查到该帧的位姿  那么就失败 
-            // if (!SearchVertexPose(curr_id, pose)) {
-            //     return false;  
-            // }
-
             pcl::transformPointCloud (origin_points, trans_points, curr_vertex.pose_.matrix()); // 转到世界坐标  
             *map += trans_points; 
         }
@@ -664,19 +770,16 @@ public:
      * @return uint64_t 
      */
     uint64_t GetLocalID(uint64_t const& global_id) {
-        return globalID_to_localID_.at(global_id);
+        return global_to_local_ID_.at(global_id);
     }
 
     /**
      * @brief: 根据id获取vertex的pose 
-     * @param index
+     * @param id
      */            
-    inline bool SearchVertexPose(uint32_t const& idx, Eigen::Isometry3d &pose) const {
-        if (vertex_container_.size() <= idx) {
-            return false;
-        }
-
-        pose = vertex_container_[idx].pose_;
+    inline bool SearchVertexPose(uint64_t const& id, Eigen::Isometry3d &pose) const {
+        Vertex v = GetVertexByID(id); 
+        pose = v.pose_;
         return true;  
     }
 
@@ -747,6 +850,6 @@ private:
 
     std::deque<Edge> edge_container_; // 保存图节点
     std::deque<Vertex> vertex_container_; // 保存图的边
-    std::unordered_map<uint64_t, uint64_t> globalID_to_localID_;  // 数据库id到位姿图id的映射  
+    std::unordered_map<uint64_t, uint64_t> global_to_local_ID_;  // 数据库id到位姿图id的映射  
 }; // class 
 } // namespace 

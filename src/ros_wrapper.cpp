@@ -204,7 +204,8 @@ visualization_msgs::MarkerArray createMarkerArray(lifelong_backend::KeyFrameInfo
     int i=0;
 
     for (int num = 0; num < info.edge_database_.size(); num++) {
-        uint64_t local_id = lifelong_backend::PoseGraphDataBase::GetInstance().GetLocalID(info.edge_database_[num].link_id_.first); 
+        uint64_t local_id = 
+            lifelong_backend::PoseGraphDataBase::GetInstance().GetLocalID(info.edge_database_[num].link_id_.first); 
         Eigen::Vector3d pt1 = 
             info.vertex_database_[local_id].pose_.translation();
         // Twc*Tlc^-1 = Twl
@@ -296,6 +297,7 @@ visualization_msgs::MarkerArray createMarkerArray(lifelong_backend::KeyFrameInfo
     sphere_marker.ns = "Odom Error";
     sphere_marker.id = 3;
     sphere_marker.type = visualization_msgs::Marker::SPHERE;
+    
     if (!info.new_keyframes_.empty()) {
         Eigen::Vector3d pos = (trans_odom2map * info.new_keyframes_.back().odom_).translation();
         sphere_marker.pose.position.x = pos.x();

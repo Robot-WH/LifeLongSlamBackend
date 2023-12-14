@@ -23,9 +23,10 @@ public:
   virtual bool Optimize(uint8_t flag = 0) = 0;
   virtual void Reset() {}
   // 输入、输出数据
-  virtual bool GetAllOptimizedPose(std::deque<Eigen::Matrix4f>& optimized_pose) = 0;
-  virtual Eigen::Isometry3d ReadOptimizedPose(uint64_t const& id) = 0;
+  virtual bool GetAllGraphNodePose(std::deque<Eigen::Matrix4f>& optimized_pose) = 0;
+  virtual Eigen::Isometry3d GetNodePose(uint64_t const& id) = 0;
   virtual uint64_t GetNodeNum() = 0;
+  virtual void SetNodePose(uint64_t const& id, Eigen::Isometry3d const& pose) = 0;
   // 添加节点、边、鲁棒核
   virtual void SetEdgeRobustKernel(std::string robust_kernel_name, double robust_kernel_size) = 0;
   virtual void AddSe3Node(const Eigen::Isometry3d &pose, uint64_t const& id, bool need_fix = false) = 0;

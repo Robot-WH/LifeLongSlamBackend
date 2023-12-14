@@ -63,14 +63,6 @@ public:
 
   bool Load(const std::string& directory) {
   }
-  /**
-   * @brief: id 是和保存在硬盘中的点云数据标签一致的
-   */      
-  int get_id() const {
-    return id_;
-  }
-
-public:
   // 关键帧的数据结构
   double time_stamp_ = 0.0;                                // timestamp
   int64_t id_ = -1;   // 对应点云文件  在文件夹中的标识    以及   节点
