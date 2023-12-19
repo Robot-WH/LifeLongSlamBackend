@@ -16,9 +16,9 @@ namespace lifelong_backend {
  * @brief: pose-graph 顶点
  */
 struct Vertex {
-    Vertex() : id_(0), session_(0), pose_(Eigen::Isometry3d::Identity()) {}
-    Vertex(uint64_t const& id, uint32_t const& session, Eigen::Isometry3d const& pose) 
-        : id_(id), session_(session), pose_(pose) {}
+    Vertex() : id_(0), traj_(0), pose_(Eigen::Isometry3d::Identity()) {}
+    Vertex(uint64_t const& id, uint16_t const& traj, Eigen::Isometry3d const& pose) 
+        : id_(id), traj_(traj), pose_(pose) {}
     
     void SetPose(Eigen::Isometry3d const& pose) {
         pose_ = pose;  
@@ -35,13 +35,13 @@ struct Vertex {
         }
 
         std::ofstream ofs(path + "/Vertex/id_" + std::to_string(id_));
-        ofs << "session " << session_ << "\n";  
+        ofs << "traj " << traj_ << "\n";  
         ofs << "id " << id_ << "\n";
         ofs << "pose\n";
         ofs << pose_.matrix() <<"\n";
     }
 
-    uint32_t session_;     // 支持 multi - session
+    uint16_t traj_;     // 轨迹id    支持 multi - session
     uint64_t id_;      // 全局id
     Eigen::Isometry3d pose_;
 }; 
@@ -78,9 +78,6 @@ struct Edge {
         ofs << constraint_.matrix()<<"\n";
         ofs << "noise\n";
         ofs << noise_.matrix()<<"\n";
-    }
-    
-    void Load() {
     }
 
     int16_t traj_ = -1;     // 该edge所属的轨迹

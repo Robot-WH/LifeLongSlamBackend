@@ -122,7 +122,7 @@ private:
     bool has_loop_ = false;  
     uint64_t id_ = 0;
     uint64_t start_id_ = 0;
-    uint32_t session_ = 0;   
+    uint16_t trajectory_ = 0;   
 
     // 回环模块 
     std::unique_ptr<LoopDetection<_FeatureT>> loop_detect_;  

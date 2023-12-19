@@ -8,13 +8,10 @@
  * 
  */
 #pragma once 
-
 #include "GlobalDescriptor/scanContext/Scancontext.hpp"
 #include "SlamLib/Common/color.hpp"
 #include "SlamLib/Common/pointcloud.h"
-
 namespace lifelong_backend {
-
 /**
  * @brief: 通过scan-context进行关键帧位置识别  
  */    
@@ -30,7 +27,6 @@ public:
         : target_names_(std::move(target_names)) {}
     virtual ~SceneRecognitionScanContext() {}
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 对于一个关键帧点云计算 描述子保存 
      * @details: 
@@ -68,10 +64,10 @@ public:
                                                         )); 
             // t_tree_construction.toc("Tree construction");
         }
+
         tree_making_period_conter_++;
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 查找相似的点云
      * @details: 用于重定位 
@@ -91,19 +87,18 @@ public:
         return descFindSimilar(polarcontext_ringkey, sc_desc); // <id, 相对变换>
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 闭环检测
      * @details: 查找 指定id关键帧的 闭环帧  
-     * @param id
+     * @param index
      * @return <闭环的id, 预测位姿关系>
      */            
-    std::pair<int64_t, Eigen::Isometry3d> LoopDetect(uint32_t const& id) {
-        std::cout << SlamLib::color::YELLOW << "场景识别，当前帧id: " << id << std::endl;
+    std::pair<int64_t, Eigen::Isometry3d> LoopDetect(uint32_t const& index) {
+        std::cout << SlamLib::color::YELLOW << "场景识别，当前帧index: " << index << std::endl;
         Eigen::Isometry3d relpose = Eigen::Isometry3d::Identity();   
         // 首先将sc描述子提取出来  
-        auto curr_ringkey = polarcontext_ringkeys_vec_[id]; // current observation (query)      提取最新一帧ring-key
-        auto curr_desc = polarcontexts_sc_[id];   // current observation (query)      提取最新的sc描述子  
+        auto curr_ringkey = polarcontext_ringkeys_vec_[index]; // current observation (query)      提取最新一帧ring-key
+        auto curr_desc = polarcontexts_sc_[index];   // current observation (query)      提取最新的sc描述子  
         /* 
         * step 1: candidates from ringkey tree_  首先查找ring key  获得候选关键帧
         */
@@ -115,7 +110,6 @@ public:
         return descFindSimilar(curr_ringkey, curr_desc); 
     } 
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 保存sc描述子以及ringkey描述子 
      */            
@@ -143,7 +137,11 @@ public:
         return true; 
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief 
+     * 
+     * @param database_dir 
+     */
     void Load(std::string const& database_dir) {
         polarcontext_ringkeys_vec_.clear(); 
         polarcontexts_sc_.clear();  
@@ -211,16 +209,19 @@ public:
             tt.toc("build scan-context kdtree ");
             LOG(INFO) << SlamLib::color::GREEN << "位置识别数据库加载完成!"<< SlamLib::color::RESET;
         }
+
         return; 
     }
 
 protected:
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
-     * @brief: 在输入的点云特征中提取出感兴趣的
-     */            
-    void extractInterestPointClouds(FeatureContainer const& pcl_in, 
-            pcl::PointCloud<_PointCloudT> &selected_pointcloud) {
+     * @brief 在输入的点云特征中提取出感兴趣的
+     * 
+     * @param pcl_in 
+     * @param selected_pointcloud 
+     */
+    void extractInterestPointClouds(const FeatureContainer& pcl_in, 
+            pcl::PointCloud<_PointCloudT>& selected_pointcloud) {
         selected_pointcloud.clear(); 
         // 如果没有指定 目标点云的名称   那么 map 中全部点云  都进行使用 
         if (target_names_.empty()) {
@@ -237,7 +238,6 @@ protected:
         }
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 输入 描述子 在数据库中找到相似的一帧
      * @details 步骤： 1、先通过 ringkey 找到 候选帧   2、
@@ -245,18 +245,18 @@ protected:
      * @param sc_desc SC描述子 
      * @return <id, 相对变换>
      */            
-    std::pair<int64_t, Eigen::Isometry3d> descFindSimilar(std::vector<float> const& ring_key, 
-                                                                                                                        Eigen::MatrixXd const& sc_desc) {
+    std::pair<int64_t, Eigen::Isometry3d> descFindSimilar( const std::vector<float>& ring_key, 
+                                                                                                                         const Eigen::MatrixXd& sc_desc) {
         double min_dist = 10000000; // init with somthing large
         int nn_align = 0;
-        int nn_idx = 0;
+        int64_t nn_idx = 0;
         // knn search   NUM_CANDIDATES_FROM_TREE_ = 10  , 10个候选关键帧    
         std::vector<size_t> candidate_indexes(NUM_CANDIDATES_FROM_TREE_);   // 保存候选帧在 数据容器中的序号 
         std::vector<float> out_dists_sqr(NUM_CANDIDATES_FROM_TREE_);        // 保存候选关键帧的ringkey的距离  
 
         // SlamLib::time::TicToc t_tree_search;
         // 找 NUM_CANDIDATES_FROM_TREE_  个最近关键帧 
-        nanoflann::KNNResultSet<float> knnsearch_result( NUM_CANDIDATES_FROM_TREE_ );
+        nanoflann::KNNResultSet<float> knnsearch_result(NUM_CANDIDATES_FROM_TREE_);
         // 初始化    用 candidate_indexes 和  out_dists_sqr 数组的数组名地址初始化          设置搜索结果存放的数组  
         knnsearch_result.init( &candidate_indexes[0],    // 存放序号的数组
                                                         &out_dists_sqr[0] );    // 存放 距离的数组     
@@ -273,7 +273,7 @@ protected:
         // 遍历所有候选关键帧       找到距离最近的index 与 旋转量   
         for (int candidate_iter_idx = 0; candidate_iter_idx < NUM_CANDIDATES_FROM_TREE_; candidate_iter_idx++ ) {   
             // 获取候选关键帧 的sc描述子  
-            Eigen::MatrixXd polarcontext_candidate = polarcontexts_sc_[ candidate_indexes[candidate_iter_idx] ];
+            Eigen::MatrixXd polarcontext_candidate = polarcontexts_sc_[candidate_indexes[candidate_iter_idx] ];
             // 计算描述子的距离  
             std::pair<double, int> sc_dist_result = sc_.DistanceBtnScanContext(sc_desc, polarcontext_candidate); 
             
@@ -288,13 +288,13 @@ protected:
             }
         }
         // t_calc_dist.toc("Distance calc");
-        int64_t loop_id = -1; 
+        int64_t loop_idx = -1; 
         Eigen::Isometry3d relpose = Eigen::Isometry3d::Identity();   
         /* 
         * loop threshold check    即判断是否小于阈值  
         */
         if (min_dist < SC_DIST_THRES_) {
-            loop_id = nn_idx; 
+            loop_idx = nn_idx; 
             // std::std::cout.precision(3); 
             std::cout << SlamLib::color::GREEN << "[Loop found] Nearest distance: " 
                 << min_dist << " match idx: " << nn_idx << std::endl;
@@ -315,19 +315,35 @@ protected:
                     * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) 
                     * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitX());
         relpose.linear() = rot;  
-        return std::make_pair(loop_id, relpose);   
+        return std::make_pair(loop_idx, relpose);   
     }
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief 
+     * 
+     * @param radians 
+     * @return float 
+     */
     float rad2deg(float radians) {
         return radians * 180.0 / M_PI;
     }
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
+    /**
+     * @brief 
+     * 
+     * @param degrees 
+     * @return float 
+     */
     float deg2rad(float degrees) {
         return degrees * M_PI / 180.0;
     }
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // @brief eigen 类型数据转换为 vector 数据 
+    
+    /**
+     * @brief eigen 类型数据转换为 vector 数据 
+     * 
+     * @param _eigmat 
+     * @return std::vector<float> 
+     */
     std::vector<float> eig2vec(Eigen::MatrixXd _eigmat) {
         std::vector<float> vec( _eigmat.data(), _eigmat.data() + _eigmat.size());
         return vec;

@@ -6,7 +6,6 @@
  * @date 2023-11-25
  * 
  * @copyright Copyright (c) 2023
- * 
  */
 #pragma once 
 #include "backend_lifelong.h"
@@ -75,7 +74,7 @@ void LifeLongBackEndOptimization<_FeatureT>::Load() {
     keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetAllEdge(); 
     IPC::Server::Instance().Publish("keyframes_info", keyframe_info); 
     LOG(INFO) << SlamLib::color::GREEN << "历史轨迹可视化发布..." << SlamLib::color::RESET;
-    id_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().keyframe_num;  
+    id_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().keyframe_cnt;  
     start_id_ = id_;  
 }
 
@@ -84,7 +83,7 @@ template<typename _FeatureT>
 void LifeLongBackEndOptimization<_FeatureT>::SaveGlobalMap(float resolution, std::string save_path) {
         typename pcl::PointCloud<_FeatureT>::Ptr global_map(new pcl::PointCloud<_FeatureT>());
     // 遍历全部节点
-    uint64_t num = PoseGraphDataBase::GetInstance().ReadVertexNum();
+    uint64_t num = PoseGraphDataBase::GetInstance().GetGraphVertexNum();
 
     for (uint64_t i = 0; i < num; i++) {
         typename pcl::PointCloud<_FeatureT>::Ptr origin_points(new pcl::PointCloud<_FeatureT>());
@@ -111,7 +110,6 @@ void LifeLongBackEndOptimization<_FeatureT>::SaveGlobalMap(float resolution, std
 template<typename _FeatureT>
 void LifeLongBackEndOptimization<_FeatureT>::SavePoseGraph() {
     ForceGlobalOptimaze();  
-    std::cout << "ForceGlobalOptimaze() done!" << std::endl;
     PoseGraphDataBase::GetInstance().Save();    // 数据库保存
     loop_detect_->Save(option_.database_save_path_);    // 回环检测数据库保存 
 }
@@ -140,6 +138,7 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
         LOG(INFO) << SlamLib::color::GREEN << "-----------------RELOCALIZATION!-----------------" 
             << SlamLib::color::RESET;
         std::pair<int64_t, Eigen::Isometry3d> res = loop_detect_->Relocalization(lidar_data.pointcloud_data_); 
+        return;
         static uint8_t n = 0;  
         // 重定位失败 ，若开启地图更新，此时会重新建立一条新的轨迹，否则延迟一下，继续重定位 
         if (res.first == -1) {
@@ -150,8 +149,8 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
                 n = 0;
                 work_mode_ = WorkMode::MAPPING;
                 optimizer_->Reset();  
-                PoseGraphDataBase::GetInstance().DataReset(); 
-                session_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().session_num;  
+                PoseGraphDataBase::GetInstance().CreateNewSession(); 
+                trajectory_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().session_cnt;  
             }
 
             n++;
@@ -529,25 +528,17 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
         keyframe.id_ = id_;
         ++id_;   
         Eigen::Isometry3d corrected_pose = this->trans_odom2map_ * keyframe.odom_; 
-        // 把关键帧点云存储到硬盘里     不消耗内存
-        for (auto iter = points.begin(); iter != points.end(); ++iter) {  
-            // 存到数据库中  
-            PoseGraphDataBase::GetInstance().AddKeyFramePointCloud(iter->first, 
-                keyframe.id_, *(iter->second));
-        }
         // 点云数据加入到回环模块进行处理
         loop_detect_->AddData(points);    // 点云
         // 添加节点  
         if (keyframe.id_ == start_id_) {
             // 第一个节点默认 fix
             optimizer_->AddSe3Node(corrected_pose, keyframe.id_, true);
-            //  添加到数据库中   图优化中的node 和 数据库中的关键帧 序号是一一对应的
-            PoseGraphDataBase::GetInstance().AddKeyFrameData(keyframe);   
-            PoseGraphDataBase::GetInstance().AddVertex(keyframe.id_, session_, corrected_pose);  
-            PoseGraphDataBase::GetInstance().AddPosePoint(corrected_pose);  
+            PoseGraphDataBase::GetInstance().AddKeyFrame<_FeatureT>(keyframe, trajectory_, corrected_pose, points);   
             continue;
         }
-
+        //  添加到数据库中  
+        PoseGraphDataBase::GetInstance().AddKeyFrame<_FeatureT>(keyframe, trajectory_, corrected_pose, points);   
         optimizer_->AddSe3Node(corrected_pose, keyframe.id_); 
         // 观测噪声
         Eigen::Matrix<double, 1, 6> noise;
@@ -558,7 +549,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
         }
 
         optimizer_->AddSe3Edge(keyframe.adjacent_id_, keyframe.id_, keyframe.between_constraint_, noise);  
-        PoseGraphDataBase::GetInstance().AddEdge(session_, keyframe.adjacent_id_, keyframe.id_, 
+        PoseGraphDataBase::GetInstance().AddEdge(trajectory_, keyframe.adjacent_id_, keyframe.id_, 
                                                                                                         keyframe.between_constraint_, noise);  
 
         // 与GNSS进行匹配 
@@ -606,10 +597,6 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
                 planeConstraint_freq_count--;
             }
         }     
-        //  添加到数据库中  
-        PoseGraphDataBase::GetInstance().AddKeyFrameData(keyframe);   
-        PoseGraphDataBase::GetInstance().AddVertex(keyframe.id_, session_, corrected_pose);  
-        PoseGraphDataBase::GetInstance().AddPosePoint(corrected_pose);  
     }
 
     this->new_keyframe_queue_.erase(this->new_keyframe_queue_.begin(), 
@@ -635,16 +622,14 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
         has_loop_ = true;  
         // 添加回环边
         for (uint16_t i = 0; i < new_loops.size(); i++) {
-            // 与不同session的轨迹发生了回环，较晚的session与较早的session对齐 
-            if (new_loops[i].loop_traj_ != session_) {
-                std::deque<Vertex> loop_session_vertexs;  
-                // 提取出回环session的全部节点  
-                PoseGraphDataBase::GetInstance().GetSessionVertex(new_loops[i].loop_traj_, loop_session_vertexs);  
-                std::cout << "loop session: " << new_loops[i].loop_traj_ << ", 节点数量： " 
-                    << loop_session_vertexs.size() << std::endl;
+            // 与不同的轨迹发生了回环，较晚的轨迹与较早的轨迹对齐 
+            if (new_loops[i].loop_traj_ != trajectory_) {
+                std::deque<Vertex> loop_trajectory_vertexs;  
+                // 提取出回环trajectory的全部节点  
+                PoseGraphDataBase::GetInstance().GetTrajectoryVertex(new_loops[i].loop_traj_, loop_trajectory_vertexs);  
                 Eigen::Isometry3d correct = Eigen::Isometry3d::Identity();
                 
-                if (new_loops[i].loop_traj_ < session_) {
+                if (new_loops[i].loop_traj_ < trajectory_) {
                     // 当前建图的轨迹与历史回环轨迹对齐(当前轨迹的节点转换到回环轨迹的参考坐标系上)
                     Vertex loop_vertex = PoseGraphDataBase::GetInstance().GetVertexByID(new_loops[i].link_id_.first);  
                     Vertex curr_vertex = PoseGraphDataBase::GetInstance().GetVertexByID(new_loops[i].link_id_.second);  
@@ -654,22 +639,22 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                     // 重新设置当前轨迹的位姿和轨迹编号 
                     for (auto& vertex : all_vertex) {
                         vertex.pose_ = correct * vertex.pose_;  
-                        vertex.session_ = new_loops[i].loop_traj_;
+                        vertex.traj_ = new_loops[i].loop_traj_;
                         optimizer_->SetNodePose(vertex.id_, vertex.pose_); 
                     }
 
-                    session_ = new_loops[i].loop_traj_;
+                    trajectory_ = new_loops[i].loop_traj_;
                 } else {
                 }
                 
-                for (auto& vertex : loop_session_vertexs) {
-                    if (new_loops[i].loop_traj_ > session_) {
+                for (auto& vertex : loop_trajectory_vertexs) {
+                    if (new_loops[i].loop_traj_ > trajectory_) {
                         // 回环轨迹转换到当前轨迹坐标系上 
                         vertex.pose_ = correct * vertex.pose_;
-                        vertex.session_ = session_;  
+                        vertex.traj_ = trajectory_;  
                     } 
                     // 添加回环轨迹节点
-                    PoseGraphDataBase::GetInstance().AddVertex(vertex.id_, vertex.session_, vertex.pose_);  
+                    PoseGraphDataBase::GetInstance().AddVertex(vertex.id_, vertex.traj_, vertex.pose_);  
                     optimizer_->AddSe3Node(vertex.pose_, vertex.id_); 
                 }
                 // 从数据库磁盘中加载对应轨迹的边  
@@ -679,7 +664,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                 for (auto& edge : loop_trajectory_edges) {
                     optimizer_->AddSe3Edge(edge.link_id_.first, edge.link_id_.second, 
                                                         edge.constraint_, edge.noise_);  
-                    PoseGraphDataBase::GetInstance().AddEdge(edge);
+                    PoseGraphDataBase::GetInstance().AddEdge(edge, false);
                 }
             }
             
@@ -696,23 +681,15 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
         new_external_constranit_num_ = 0; 
     }
     // optimize the pose graph
+    // 如果新增足够的外部约束以及没有回环  那么不用执行全局优化 
+    if (!do_optimize && !has_loop_) {
+        return false;
+    }  
     // 执行优化
-    static int optimize_dormant = 0;
-    
-    if (optimize_dormant <= 0) {
-        SlamLib::time::TicToc tt;
-        // 如果新增足够的外部约束以及没有回环  那么不用执行全局优化 
-        if (!do_optimize && !has_loop_) {
-            return false;
-        }  
-
-        optimizer_->Optimize(has_loop_);  
-        do_optimize = false;  
-    } else {
-        optimize_dormant--;  
-        return false;  
-    }
-
+    SlamLib::time::TicToc tt;
+    optimizer_->Optimize(has_loop_);  
+    tt.toc("optimizer_->Optimize ");
+    do_optimize = false;  
     return true;  
 }
 }
