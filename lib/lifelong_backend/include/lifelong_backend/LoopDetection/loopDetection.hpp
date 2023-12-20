@@ -25,14 +25,24 @@ struct LoopDetectionOption {
     double min_score;  
 };
 /**
+ * @brief 重定位结果
+ * 
+ */
+struct RelocResult {
+    int32_t traj_id_ = 0;  
+    uint32_t global_index_ = 0;
+    Eigen::Isometry3d pose_;
+};
+
+/**
  * @brief: 基于雷达的闭环检测 - 1、先验位姿检测   2、点云描述子检测 
  *@param _PointType 回环时进行点云匹配的点类型 
     */    
 template<typename _PointType>
 class LoopDetection {   
 private:
+    using PointCloudPtr = typename pcl::PointCloud<_PointType>::Ptr;
     using PointCloudConstPtr = typename pcl::PointCloud<_PointType>::ConstPtr;  
-    using SourceT = std::pair<std::string, PointCloudConstPtr>;     // 匹配源类型    <id, 数据>
 
     using ConstFeaturePointcloudContainer = SlamLib::ConstFeaturePointCloudContainer<_PointType>;
     using FeaturePointcloudContainer = SlamLib::FeaturePointCloudContainer<_PointType>;
@@ -204,14 +214,15 @@ public:
     //     return res;  
     // }
 
-    std::pair<int64_t, Eigen::Isometry3d> Relocalization(
-            FeaturePointcloudContainer const& scan_in) {   
+    RelocResult Relocalization(FeaturePointcloudContainer const& scan_in) {   
         SlamLib::time::TicToc tt; 
         // step1 先识别出相似帧，这里得到的是数据库的全局Index   
         std::pair<int64_t, Eigen::Isometry3d> res = scene_recognizer_.FindSimilarPointCloud(scan_in);  
+        RelocResult reloc_res;
 
         if (res.first == -1) {
-            return res; 
+            reloc_res.traj_id_ = -1;
+            return reloc_res; 
         }
 
         PoseGraphDataBase& poseGraph_database = PoseGraphDataBase::GetInstance(); 
@@ -254,8 +265,8 @@ public:
             if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
                 LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,name: "
                     << name << SlamLib::color::RESET;
-                res.first = -1;
-                return res;  
+                reloc_res.traj_id_ = -1;
+                return reloc_res; 
             }
             
             rough_registration_->SetInputSource(std::make_pair(name, local_map)); 
@@ -266,8 +277,8 @@ public:
         res.second = loop_vertex.pose_ * res.second;  
         // 回环first的点云
         if (!rough_registration_->Solve(res.second)) {
-            res.first = -1;
-            return res;  
+            reloc_res.traj_id_ = -1;
+            return reloc_res; 
         }
         // 细匹配
         // 将细匹配所需要的点云local map 提取出来 
@@ -280,8 +291,8 @@ public:
                 if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
                     LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,name: "
                         << name << SlamLib::color::RESET;
-                    res.first = -1;
-                    return res;  
+                    reloc_res.traj_id_ = -1;
+                    return reloc_res; 
                 }
 
                 localmaps[name] = local_map; 
@@ -293,8 +304,8 @@ public:
         refine_registration_->SetInputTarget(scan_in);
 
         if (!refine_registration_->Solve(res.second)) {
-            res.first = -1;
-            return res;  
+            reloc_res.traj_id_ = -1;
+            return reloc_res; 
         }
         // step3 检验   
         PointCloudConstPtr local_map(new pcl::PointCloud<_PointType>());
@@ -306,8 +317,8 @@ public:
             if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, required_name, local_map)) {
                 LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,name: "
                     << required_name << SlamLib::color::RESET;
-                res.first = -1;
-                return res;  
+                reloc_res.traj_id_ = -1;
+                return reloc_res; 
             }
         }
         
@@ -315,10 +326,10 @@ public:
         std::pair<double, double> eva = align_evaluator_.AlignmentScore(
             scan_in.at(required_name), res.second.matrix().cast<float>(), 0.2, 0.8); 
         tt.toc("Relocalization ");
+        
         // score的物理意义 是 均方残差
         if (eva.first > 0.1) {
             LOG(INFO) << "score: " << eva.first << SlamLib::color::RESET;
-            res.first = -1;
             // 对回环匹配失败的进行可视化检测
             #if (LOOP_DEBUG == 1)
                 // 检测回环匹配是否准确  
@@ -334,12 +345,16 @@ public:
                 *res_points += input_transformed;
                 pcl::io::savePCDFileBinary("/home/lwh/reloc_res_" + std::to_string(ind++) + ".pcd", *res_points);
             #endif
-            return res;  
+            reloc_res.traj_id_ = -1; 
+            return reloc_res;  
         }
 
+        reloc_res.traj_id_ = loop_vertex.traj_;
+        reloc_res.global_index_ = res.first;
+        reloc_res.pose_ = res.second;  
         LOG(INFO) << SlamLib::color::GREEN << "relocalization success!";
         LOG(INFO) << "score: " << eva.first << SlamLib::color::RESET;
-        return res;  
+        return reloc_res;  
     }
 
     /**
@@ -406,7 +421,6 @@ public:
                                                                                         max_search_num); 
     }
 
-protected:
     /**
      * @brief 用一条轨迹上的结点去构造一个Local map 
      * 
@@ -437,6 +451,9 @@ protected:
         local_map = map;  
         return true;  
     }
+
+protected:
+    
     /**
      * @brief 回环检测线程 
     */

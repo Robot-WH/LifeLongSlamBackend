@@ -59,7 +59,7 @@ bool SaveMapService(lifelong_backend::SaveMapRequest& req, lifelong_backend::Sav
 void pubMarkers(const lifelong_backend::KeyFrameInfo<PointT>& info);
 void keyframeCallback(const lwio::keyframe_info& info);
 void pubOdomToMap(const Eigen::Isometry3d& odom_to_map);
-void pubLocalizeMap(const pcl::PointCloud<PointT>::Ptr& map);  
+void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map);  
 
 void InitComm(ros::NodeHandle &private_nh) {
     // for (uint16_t i = 0; i < NUM_OF_LIDAR; i++)
@@ -351,7 +351,7 @@ void pubOdomToMap(const Eigen::Isometry3d& odom_to_map) {
 /**
  * @brief 发布定位点云可视化 
 */
-void pubLocalizeMap(const pcl::PointCloud<PointT>::Ptr& map) {
+void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map) {
     sensor_msgs::PointCloud2 laserCloudTemp;
     if (localizeMap_pub.getNumSubscribers() != 0) {
         pcl::toROSMsg(*map, laserCloudTemp);

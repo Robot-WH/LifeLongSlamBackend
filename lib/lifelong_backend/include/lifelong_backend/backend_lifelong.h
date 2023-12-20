@@ -38,6 +38,7 @@ private:
         MAPPING
     };
     // using base = BackEndOptimizationBase<_FeatureT>; 
+    using PointCloudPtr = typename pcl::PointCloud<_FeatureT>::Ptr;  
     using PointCloudConstPtr = typename pcl::PointCloud<_FeatureT>::ConstPtr;  
     using SourceT = std::pair<std::string, PointCloudConstPtr>;     // 匹配源类型    <id, 数据>
     using RegistrationPtr = typename SlamLib::pointcloud::RegistrationBase<_FeatureT>::Ptr;   

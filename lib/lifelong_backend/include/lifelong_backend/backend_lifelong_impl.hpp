@@ -137,13 +137,13 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
         // 重定位
         LOG(INFO) << SlamLib::color::GREEN << "-----------------RELOCALIZATION!-----------------" 
             << SlamLib::color::RESET;
-        std::pair<int64_t, Eigen::Isometry3d> res = loop_detect_->Relocalization(lidar_data.pointcloud_data_); 
-        return;
+        RelocResult reloc_res = loop_detect_->Relocalization(lidar_data.pointcloud_data_); 
         static uint8_t n = 0;  
+        // return;  
         // 重定位失败 ，若开启地图更新，此时会重新建立一条新的轨迹，否则延迟一下，继续重定位 
-        if (res.first == -1) {
+        if (reloc_res.traj_id_ < 0) {
             // 连续几帧重定位失败则建立新地图 
-            if (n > 3) {
+            if (n > 10) {
                 std::cout << SlamLib::color::GREEN << "重定位失败，新建轨迹..." 
                     << SlamLib::color::RESET << std::endl;
                 n = 0;
@@ -152,13 +152,13 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
                 PoseGraphDataBase::GetInstance().CreateNewSession(); 
                 trajectory_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().session_cnt;  
             }
-
             n++;
         } else {
             n = 0;
             work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
-            this->trans_odom2map_ = res.second * odom.inverse(); 
+            this->trans_odom2map_ = reloc_res.pose_ * odom.inverse(); 
             IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
+            trajectory_ = reloc_res.traj_id_;
         }
 
         return; 
@@ -196,15 +196,13 @@ void LifeLongBackEndOptimization<_FeatureT>::ForceGlobalOptimaze() {
 template<typename _FeatureT>
 void LifeLongBackEndOptimization<_FeatureT>::localization() {
     while(1) {
-        // if (work_mode_ != LOCALIZATION) return;  
         if (work_mode_ != WorkMode::LOCALIZATION) {
             std::chrono::milliseconds dura(100);
             std::this_thread::sleep_for(dura);
             continue;  
         }
-
         this->keyframe_queue_sm_.lock_shared();
-        assert(this->new_keyframe_queue_.size() == this->new_keyframe_points_queue_.size()); 
+        // assert(this->new_keyframe_queue_.size() == this->new_keyframe_points_queue_.size()); 
         // 如果没有新的关键帧  
         if (this->new_keyframe_queue_.empty()) {
             this->keyframe_queue_sm_.unlock_shared();
@@ -212,19 +210,20 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
             std::this_thread::sleep_for(dura);
             continue;  
         }
-
         // static double avg_t = 0;
         // static int n = 1;  
         // 降低定位频率  
         static int interval = 1;
-
         if (interval == 0) {
             interval = 1;  
             std::cout << SlamLib::color::GREEN << "-----------------LOCALIZATION!-----------------" << std::endl;
             // 取出最早的帧  进行map匹配
+            /**
+             * @todo 这里读取deque时被读锁上锁了，有没有必要呢？了解deque在写数据时，引用有不有可能会失效  
+             */
             KeyFrame& keyframe = this->new_keyframe_queue_.front(); 
             SlamLib::FeaturePointCloudContainer<_FeatureT>& points = this->new_keyframe_points_queue_.front();
-            this->keyframe_queue_sm_.unlock_shared();
+            this->keyframe_queue_sm_.unlock_shared();    // 读锁  解锁
             Eigen::Isometry3d pose_in_map = this->trans_odom2map_ * keyframe.odom_;  
             pcl::PointXYZ curr_pos(pose_in_map.translation().x(), 
                                                             pose_in_map.translation().y(), 
@@ -234,8 +233,10 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
             SlamLib::time::TicToc tt;  
             loop_detect_->HistoricalPositionSearch(curr_pos, 0, 10, search_ind, search_dis);   // 搜索最近的历史关键帧
             // tt.toc("HistoricalPositionSearch ");
-            // std::cout<<"near node: "<<search_ind[0]<<std::endl;
-            // std::cout << "search_dis.front: " << std::sqrt(search_dis.front()) << ", back: " << std::sqrt(search_dis.back()) << std::endl;
+            for (auto& i : search_ind) {
+                std::cout << "knn i:" << 
+                    PoseGraphDataBase::GetInstance().TrajectoryLocalIndexToGlobalIndex(trajectory_, i) << std::endl;
+            }
             /**
              * @todo 如果啥都搜不到呢？
              */                    
@@ -254,27 +255,33 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                 // 遍历定位所需的所有点云标识名   将定位所需要的点云local map 提取出来 
                 for (auto const& name : localize_registration_->GetUsedPointsName()) {   
                     // 从数据库中查找 名字为 name 的点云 
-                    typename pcl::PointCloud<_FeatureT>::Ptr local_map(new pcl::PointCloud<_FeatureT>());
+                    typename pcl::PointCloud<_FeatureT>::ConstPtr local_map(new pcl::PointCloud<_FeatureT>());
 
-                    for (int i = 0; i < search_ind.size(); i++) {
-                        typename pcl::PointCloud<_FeatureT>::Ptr origin_points(new pcl::PointCloud<_FeatureT>());
-                        //   获取该关键帧名为name的点云
-                        if (!PoseGraphDataBase::GetInstance().GetKeyFramePointCloud<_FeatureT>(name, 
-                                search_ind[i], origin_points)) {
-                            std::cout << SlamLib::color::RED << "GetKeyFramePointCloud() error, name: " << name 
-                                << std::endl;
-                            throw std::bad_exception();  
-                        }
-                        // 读取节点的位姿
-                        pcl::PointCloud<_FeatureT> trans_points;   // 转换到世界坐标系下的点云 
-                        Eigen::Isometry3d pose;
-                        PoseGraphDataBase::GetInstance().SearchVertexPose(search_ind[i], pose);
-                        pcl::transformPointCloud(*origin_points, trans_points, pose.matrix()); // 转到世界坐标  
-                        *local_map += trans_points; 
+                    // for (int i = 0; i < search_ind.size(); i++) {
+                    //     typename pcl::PointCloud<_FeatureT>::Ptr origin_points(new pcl::PointCloud<_FeatureT>());
+                    //     //   获取该关键帧名为name的点云
+                    //     if (!PoseGraphDataBase::GetInstance().GetKeyFramePointCloud<_FeatureT>(name, 
+                    //             search_ind[i], origin_points)) {
+                    //         std::cout << SlamLib::color::RED << "GetKeyFramePointCloud() error, name: " << name 
+                    //             << std::endl;
+                    //         throw std::bad_exception();  
+                    //     }
+                    //     // 读取节点的位姿
+                    //     pcl::PointCloud<_FeatureT> trans_points;   // 转换到世界坐标系下的点云 
+                    //     Eigen::Isometry3d pose;
+                    //     PoseGraphDataBase::GetInstance().SearchVertexPose(search_ind[i], pose);
+                    //     pcl::transformPointCloud(*origin_points, trans_points, pose.matrix()); // 转到世界坐标  
+                    //     *local_map += trans_points; 
+                    // }
+
+                    if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, name, local_map)) {
+                        work_mode_ = WorkMode::RELOCALIZATION;
+                        continue; 
                     }
-                    // std::cout << "before filter size: " << local_map->size() << std::endl;
+
+                    std::cout << "before filter size: " << local_map->size() << std::endl;
                     local_map = downsample.Filter(local_map); 
-                    // std::cout << "after filter size: " << local_map->size() << std::endl;
+                    std::cout << "after filter size: " << local_map->size() << std::endl;
                     localize_registration_->SetInputSource(std::make_pair(name, local_map)); 
                     loc_points.map_[name] = local_map; 
                     // SlamLib::time::TicToc tt;  
@@ -297,7 +304,7 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                 // avg_t += (t - avg_t) / n;
                 // n++;  
                 // std::cout << "avg_t: " << avg_t << std::endl;
-
+                std::cout << "评估 " << std::endl;
                 tt.tic(); 
                 // 匹配评估
                 typename pcl::PointCloud<_FeatureT>::ConstPtr eva_local_map(
@@ -308,23 +315,28 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                     eva_local_map = loc_points.map_[required_name];  
                 } else {  
                     // 没有所需要的地图数据则进行构建
-                    typename pcl::PointCloud<_FeatureT>::Ptr local_map(new pcl::PointCloud<_FeatureT>());
+                    typename pcl::PointCloud<_FeatureT>::ConstPtr local_map(new pcl::PointCloud<_FeatureT>());
                     
-                    for (int i = 0; i < search_ind.size(); i++) {
-                        typename pcl::PointCloud<_FeatureT>::Ptr origin_points(new pcl::PointCloud<_FeatureT>());
+                    // for (int i = 0; i < search_ind.size(); i++) {
+                    //     typename pcl::PointCloud<_FeatureT>::Ptr origin_points(new pcl::PointCloud<_FeatureT>());
                         
-                        if (!PoseGraphDataBase::GetInstance().GetKeyFramePointCloud<_FeatureT>(required_name, 
-                                search_ind[i], origin_points)) {
-                            std::cout << SlamLib::color::RED << "错误：定位模式找不到evaluate map"
-                                << SlamLib::color::RESET << std::endl;
-                            throw std::bad_exception();  
-                        }
-                        // 读取节点的位姿
-                        pcl::PointCloud<_FeatureT> trans_points;   // 转换到世界坐标系下的点云 
-                        Eigen::Isometry3d pose;
-                        PoseGraphDataBase::GetInstance().SearchVertexPose(search_ind[i], pose);
-                        pcl::transformPointCloud(*origin_points, trans_points, pose.matrix()); // 转到世界坐标  
-                        *local_map += trans_points; 
+                    //     if (!PoseGraphDataBase::GetInstance().GetKeyFramePointCloud<_FeatureT>(required_name, 
+                    //             search_ind[i], origin_points)) {
+                    //         std::cout << SlamLib::color::RED << "错误：定位模式找不到evaluate map"
+                    //             << SlamLib::color::RESET << std::endl;
+                    //         throw std::bad_exception();  
+                    //     }
+                    //     // 读取节点的位姿
+                    //     pcl::PointCloud<_FeatureT> trans_points;   // 转换到世界坐标系下的点云 
+                    //     Eigen::Isometry3d pose;
+                    //     PoseGraphDataBase::GetInstance().SearchVertexPose(search_ind[i], pose);
+                    //     pcl::transformPointCloud(*origin_points, trans_points, pose.matrix()); // 转到世界坐标  
+                    //     *local_map += trans_points; 
+                    // }
+
+                    if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, required_name, local_map)) {
+                        work_mode_ = WorkMode::RELOCALIZATION;
+                        continue; 
                     }
                     
                     eva_local_map = local_map;
@@ -436,7 +448,6 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
         this->new_keyframe_queue_.pop_front(); 
         this->new_keyframe_points_queue_.pop_front();
         this->keyframe_queue_sm_.unlock(); 
-
         std::chrono::milliseconds dura(10);
         std::this_thread::sleep_for(dura);
     }
