@@ -139,7 +139,7 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
             << SlamLib::color::RESET;
         RelocResult reloc_res = loop_detect_->Relocalization(lidar_data.pointcloud_data_); 
         static uint8_t n = 0;  
-        // return;  
+        return;  
         // 重定位失败 ，若开启地图更新，此时会重新建立一条新的轨迹，否则延迟一下，继续重定位 
         if (reloc_res.traj_id_ < 0) {
             // 连续几帧重定位失败则建立新地图 
@@ -160,7 +160,6 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
             IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
             trajectory_ = reloc_res.traj_id_;
         }
-
         return; 
     }
     
@@ -255,7 +254,7 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                 // 遍历定位所需的所有点云标识名   将定位所需要的点云local map 提取出来 
                 for (auto const& name : localize_registration_->GetUsedPointsName()) {   
                     // 从数据库中查找 名字为 name 的点云 
-                    typename pcl::PointCloud<_FeatureT>::ConstPtr local_map(new pcl::PointCloud<_FeatureT>());
+                    PointCloudConstPtr local_map(new pcl::PointCloud<_FeatureT>());
 
                     // for (int i = 0; i < search_ind.size(); i++) {
                     //     typename pcl::PointCloud<_FeatureT>::Ptr origin_points(new pcl::PointCloud<_FeatureT>());
@@ -338,7 +337,6 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                         work_mode_ = WorkMode::RELOCALIZATION;
                         continue; 
                     }
-                    
                     eva_local_map = local_map;
                 }
 
@@ -350,7 +348,7 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                 std::cout<<"overlap_ratio: "<<res.second<<std::endl;
                 static double last_loc_record_time = -1;
                 static float last_loc_record_overlap = 0;  
-                // 得分大于1，重叠率太小了 < 0.3, 认为定位失败 
+                // 得分大于1, 认为定位失败 
                 if (res.first > 1)  {  
                     // 进行重定位
                     work_mode_ = WorkMode::RELOCALIZATION;
@@ -379,8 +377,7 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                     // #endif
                     continue;  
                 }
-                // 如果得分很低 <= 0.04  认为定位很好
-                // 同时 若重叠率 < 0.8 且 距离历史关键帧的距离不太远，则认为环境有变化，此时进行地图更新
+                // 如果得分很低 ， 认为定位很好，同时若重叠率也足够小，则认为环境发生了较大的变化   
                 if (res.first <= 0.15 && res.second < 0.7) {
                     double min_historical_keyframe_dis = std::sqrt(search_dis.front()); 
                     // 相比于历史轨迹距离足够远就直接进行建图
@@ -397,13 +394,12 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                         IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
                         continue; 
                     } else {
-                        // 转为地图更新模式
+                        // 转为地图更新模式  
                         std::cout << SlamLib::color::GREEN << "-----------------MAP UDAPATE!-----------------" 
                             << SlamLib::color::RESET << std::endl;
                         /**
                          * @todo 阶段一：只更新定位地图 ，但是位姿图不更新
                          *                  阶段二：更新定位地图，位姿图以及回环数据库也同步更新 
-                         * 
                          */
                     }
                     // if () {
@@ -524,7 +520,6 @@ void LifeLongBackEndOptimization<_FeatureT>::mapping() {
 template<typename _FeatureT>   
 bool LifeLongBackEndOptimization<_FeatureT>::processData() {
     std::unique_lock<std::shared_mutex> lock(this->keyframe_queue_sm_);
-
     if (this->new_keyframe_queue_.empty()) {
         return false;
     }
@@ -628,17 +623,21 @@ template<typename _FeatureT>
 bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
     static bool do_optimize = false;  
     std::deque<LoopEdge>  new_loops = loop_detect_->GetNewLoops();
+    std::cout << "optimize(), new_loops size: " << new_loops.size() << std::endl;
 
     if (new_loops.size() > 0) {
-        has_loop_ = true;  
+        // has_loop_ = true;  
         // 添加回环边
         for (uint16_t i = 0; i < new_loops.size(); i++) {
             // 与不同的轨迹发生了回环，较晚的轨迹与较早的轨迹对齐 
             if (new_loops[i].loop_traj_ != trajectory_) {
+                                    std::cout << "new_loops[i].loop_traj_: " << new_loops[i].loop_traj_ 
+                        << ",trajectory_: " << trajectory_ << std::endl;
                 std::deque<Vertex> loop_trajectory_vertexs;  
                 // 提取出回环trajectory的全部节点  
                 PoseGraphDataBase::GetInstance().GetTrajectoryVertex(new_loops[i].loop_traj_, loop_trajectory_vertexs);  
                 Eigen::Isometry3d correct = Eigen::Isometry3d::Identity();
+                std::cout << "loop_trajectory_vertexs size: " << loop_trajectory_vertexs.size() << std::endl;
                 
                 if (new_loops[i].loop_traj_ < trajectory_) {
                     // 当前建图的轨迹与历史回环轨迹对齐(当前轨迹的节点转换到回环轨迹的参考坐标系上)
@@ -647,13 +646,13 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                     Eigen::Isometry3d correct = (loop_vertex.pose_ * new_loops[i].constraint_) * curr_vertex.pose_.inverse();
                     // 需要对当前轨迹的数据转换到回环轨迹的坐标系上 
                     auto& all_vertex = PoseGraphDataBase::GetInstance().GetAllVertex();  
+                    std::cout << "all_vertex size: " << all_vertex.size() << std::endl;
                     // 重新设置当前轨迹的位姿和轨迹编号 
                     for (auto& vertex : all_vertex) {
                         vertex.pose_ = correct * vertex.pose_;  
                         vertex.traj_ = new_loops[i].loop_traj_;
-                        optimizer_->SetNodePose(vertex.id_, vertex.pose_); 
+                        // optimizer_->SetNodePose(vertex.id_, vertex.pose_); 
                     }
-
                     trajectory_ = new_loops[i].loop_traj_;
                 } else {
                 }
@@ -666,23 +665,26 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                     } 
                     // 添加回环轨迹节点
                     PoseGraphDataBase::GetInstance().AddVertex(vertex.id_, vertex.traj_, vertex.pose_);  
-                    optimizer_->AddSe3Node(vertex.pose_, vertex.id_); 
+                    // optimizer_->AddSe3Node(vertex.pose_, vertex.id_); 
                 }
-                // 从数据库磁盘中加载对应轨迹的边  
-                std::deque<Edge> loop_trajectory_edges;  
-                PoseGraphDataBase::GetInstance().GetTrajectoryEdge(new_loops[i].loop_traj_, loop_trajectory_edges);
+                // // 从数据库磁盘中加载对应轨迹的边  
+                // std::deque<Edge> loop_trajectory_edges;  
+                // PoseGraphDataBase::GetInstance().GetTrajectoryEdge(new_loops[i].loop_traj_, loop_trajectory_edges);
 
-                for (auto& edge : loop_trajectory_edges) {
-                    optimizer_->AddSe3Edge(edge.link_id_.first, edge.link_id_.second, 
-                                                        edge.constraint_, edge.noise_);  
-                    PoseGraphDataBase::GetInstance().AddEdge(edge, false);
-                }
+                // for (auto& edge : loop_trajectory_edges) {
+                //     optimizer_->AddSe3Edge(edge.link_id_.first, edge.link_id_.second, 
+                //                                         edge.constraint_, edge.noise_);  
+                //     PoseGraphDataBase::GetInstance().AddEdge(edge, false);
+                // }
+            } else {
+                std::cout << "new_loops[i].loop_traj_: " << new_loops[i].loop_traj_ 
+                        << ",trajectory_: " << trajectory_ << std::endl;
             }
             
-            optimizer_->AddSe3Edge(new_loops[i].link_id_.first, new_loops[i].link_id_.second, 
-                                                                    new_loops[i].constraint_, new_loops[i].noise_);  
+            // optimizer_->AddSe3Edge(new_loops[i].link_id_.first, new_loops[i].link_id_.second, 
+            //                                                         new_loops[i].constraint_, new_loops[i].noise_);  
             // 回环数据记录到数据库中
-            PoseGraphDataBase::GetInstance().AddEdge(new_loops[i]);  
+            // PoseGraphDataBase::GetInstance().AddEdge(new_loops[i]);  
         }
     }
     // 如果累计的外部约束超过10个  也触发一次优化 

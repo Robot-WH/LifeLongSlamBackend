@@ -31,6 +31,7 @@ private:
         uint64_t edge_cnt; 
     };
 public:
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 单例的创建函数  
      */            
@@ -39,6 +40,7 @@ public:
         return PoseGraph_dataBase; 
     }
 
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 保存数据
      * @details pose-graph的数据 保存在 session 中  
@@ -122,6 +124,7 @@ public:
         return true; 
     }
 
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief 
      * @return true 
@@ -133,14 +136,12 @@ public:
         while(index < info_.keyframe_cnt) {
             Vertex vertex;  
             std::ifstream ifs(database_save_path_ + "/Vertex/id_" + std::to_string(index));
-
             if(!ifs) {
                 index++;  
                 continue;
             }
-
             index++;  
-
+            // 读取该结点的信息
             while(!ifs.eof()) {
                 std::string token;
                 ifs >> token;
@@ -165,6 +166,9 @@ public:
                 }
             }
 
+            database_vertex_info_.emplace_back(vertex.traj_, traj_vertex_map_[vertex.traj_].size()); 
+            traj_vertex_map_[vertex.traj_].push_back(vertex); 
+            
             traj_vertexDatabaseIndex_map_[vertex.traj_].push_back(vertex_database_.size());  
             vertex_database_.push_back(vertex); 
             AddPosePoint(vertex.traj_, vertex.pose_);
@@ -480,7 +484,9 @@ public:
      * @return Vertex 
      */
     Vertex GetVertexByDatabaseIndex(const uint64_t& index) const {
-        return vertex_database_[index];
+        // return vertex_database_[index];
+        auto& vertex_info = database_vertex_info_[index];
+        return traj_vertex_map_.at(vertex_info.first)[vertex_info.second];
     }
 
     /**
@@ -490,8 +496,9 @@ public:
      * @return Vertex 
      */
     Vertex GetVertexByTrajectoryLocalIndex(const uint16_t& traj, const uint64_t& index) const {
-        uint64_t database_idx = traj_vertexDatabaseIndex_map_.at(traj)[index];  
-        return vertex_database_[database_idx];
+        // uint64_t database_idx = traj_vertexDatabaseIndex_map_.at(traj)[index];  
+        // return vertex_database_[database_idx];
+        return traj_vertex_map_.at(traj)[index];  
     }
 
     /**
@@ -966,6 +973,8 @@ private:
     std::deque<KeyFrame> keyframe_database_; // 保存全部关键帧的观测信息   
     
     std::deque<Vertex> vertex_database_;    // 缓存数据库中全部结点信息 
+    std::deque<std::pair<uint16_t, uint32_t>> database_vertex_info_;     // <traj，local_index>
+    std::unordered_map<uint16_t, std::deque<Vertex>> traj_vertex_map_;
     std::unordered_map<uint16_t, std::deque<uint64_t>> traj_vertexDatabaseIndex_map_;
     std::unordered_map<uint16_t, std::deque<Edge>> traj_edge_map_;
 

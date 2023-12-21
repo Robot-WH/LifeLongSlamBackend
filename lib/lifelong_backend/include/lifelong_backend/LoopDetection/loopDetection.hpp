@@ -214,7 +214,7 @@ public:
     //     return res;  
     // }
 
-    RelocResult Relocalization(FeaturePointcloudContainer const& scan_in) {   
+    RelocResult Relocalization(const FeaturePointcloudContainer& scan_in) {   
         SlamLib::time::TicToc tt; 
         // step1 先识别出相似帧，这里得到的是数据库的全局Index   
         std::pair<int64_t, Eigen::Isometry3d> res = scene_recognizer_.FindSimilarPointCloud(scan_in);  
@@ -432,10 +432,11 @@ public:
      * @return false 
      */
     bool ConstructLocalmapByTrajectoryNode(uint16_t traj, std::vector<int> const& search_ind,
-            std::string const& points_name, PointCloudConstPtr& local_map) {
+                                                                                                std::string const& points_name, 
+                                                                                                PointCloudConstPtr& local_map) {
         pcl::PointCloud<_PointType> origin_points;   // 激光坐标系下的点云
         pcl::PointCloud<_PointType> trans_points;   // 转换到世界坐标系下的点云 
-        typename pcl::PointCloud<_PointType>::Ptr map(new pcl::PointCloud<_PointType>()); 
+        PointCloudPtr map(new pcl::PointCloud<_PointType>()); 
         // 遍历每一个index的结点
         for (const int& idx : search_ind) {
             Vertex vertex = PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(traj, idx);
@@ -759,6 +760,8 @@ protected:
                 Eigen::Isometry3d origin_T = res.second;  
 
                 if (eva.first > MIN_SCORE_) {
+                    std::cout << "eva.first > MIN_SCORE_, eva.first: " << eva.first
+                        << ",MIN_SCORE_: " << MIN_SCORE_ << std::endl;
                     // 对回环匹配失败的进行可视化检测
                     #if (LOOP_DEBUG == 1)
                         // 检测回环匹配是否准确  
@@ -790,6 +793,7 @@ protected:
                 new_loop.noise_ << 0.0025, 0.0025, 0.0025, 0.0001, 0.0001, 0.0001;
                 loop_mt_.lock();
                 new_loops_.push_back(std::move(new_loop));  
+                std::cout << "add new_loops_ size: " << new_loops_.size() << std::endl;
                 loop_mt_.unlock();  
             }
 
