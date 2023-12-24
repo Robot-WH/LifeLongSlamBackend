@@ -204,8 +204,7 @@ visualization_msgs::MarkerArray createMarkerArray(lifelong_backend::KeyFrameInfo
     int i=0;
 
     for (int num = 0; num < info.edge_database_.size(); num++) {
-        uint64_t local_id = 
-            lifelong_backend::PoseGraphDataBase::GetInstance().GetLocalID(info.edge_database_[num].link_id_.first); 
+        uint64_t local_id = info.edge_database_[num].link_head_local_index_; 
         Eigen::Vector3d pt1 = 
             info.vertex_database_[local_id].pose_.translation();
         // Twc*Tlc^-1 = Twl
@@ -271,7 +270,7 @@ visualization_msgs::MarkerArray createMarkerArray(lifelong_backend::KeyFrameInfo
         //     }
         // }
     }
-    // 回环检测的边   2个点 
+    // // 回环检测的边   2个点 
     // for (auto const& loop:info.loops_) { 
     //     Eigen::Vector3d pt1 = info.keyframe_database_[loop.id_1_].correct_pose_.translation(); // 新帧  
     //     Eigen::Vector3d pt2 = (info.keyframe_database_[loop.id_1_].correct_pose_

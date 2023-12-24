@@ -53,6 +53,7 @@ LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string 
     // 设置数据库保存路径
     option_.database_save_path_ = yaml["database_path"].as<std::string>();
     PoseGraphDataBase::GetInstance().SetSavePath(option_.database_save_path_);  
+    trajectory_ = 0;   
     Load();  
 }
 
@@ -68,12 +69,7 @@ void LifeLongBackEndOptimization<_FeatureT>::Load() {
 
     work_mode_ = WorkMode::RELOCALIZATION;   // 默认为建图模式 
     LOG(INFO) << SlamLib::color::GREEN << "载入历史数据库，准备重定位......" << SlamLib::color::RESET;
-    // 发布在载后的数据 
-    KeyFrameInfo<_FeatureT> keyframe_info; 
-    keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetAllVertex(); 
-    keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetAllEdge(); 
-    IPC::Server::Instance().Publish("keyframes_info", keyframe_info); 
-    LOG(INFO) << SlamLib::color::GREEN << "历史轨迹可视化发布..." << SlamLib::color::RESET;
+
     id_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().keyframe_cnt;  
     start_id_ = id_;  
 }
@@ -110,7 +106,7 @@ void LifeLongBackEndOptimization<_FeatureT>::SaveGlobalMap(float resolution, std
 template<typename _FeatureT>
 void LifeLongBackEndOptimization<_FeatureT>::SavePoseGraph() {
     ForceGlobalOptimaze();  
-    PoseGraphDataBase::GetInstance().Save();    // 数据库保存
+    PoseGraphDataBase::GetInstance().Save(trajectory_);    // 数据库保存
     loop_detect_->Save(option_.database_save_path_);    // 回环检测数据库保存 
 }
 
@@ -139,7 +135,6 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
             << SlamLib::color::RESET;
         RelocResult reloc_res = loop_detect_->Relocalization(lidar_data.pointcloud_data_); 
         static uint8_t n = 0;  
-        return;  
         // 重定位失败 ，若开启地图更新，此时会重新建立一条新的轨迹，否则延迟一下，继续重定位 
         if (reloc_res.traj_id_ < 0) {
             // 连续几帧重定位失败则建立新地图 
@@ -149,8 +144,7 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
                 n = 0;
                 work_mode_ = WorkMode::MAPPING;
                 optimizer_->Reset();  
-                PoseGraphDataBase::GetInstance().CreateNewSession(); 
-                trajectory_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().session_cnt;  
+                trajectory_ = PoseGraphDataBase::GetInstance().CreateNewSession(); 
             }
             n++;
         } else {
@@ -159,6 +153,11 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
             this->trans_odom2map_ = reloc_res.pose_ * odom.inverse(); 
             IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
             trajectory_ = reloc_res.traj_id_;
+            // 可视化历史轨迹
+            KeyFrameInfo<_FeatureT> keyframe_info; 
+            keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_); 
+            keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_); 
+            IPC::Server::Instance().Publish("keyframes_info", keyframe_info); 
         }
         return; 
     }
@@ -178,8 +177,8 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
 
     KeyFrameInfo<_FeatureT> keyframe_info; 
     keyframe_info.time_stamps_ = keyframe.time_stamp_;  
-    keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetAllVertex(); 
-    keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetAllEdge(); 
+    keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_); 
+    keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_); 
     keyframe_info.new_keyframes_ = this->new_keyframe_queue_;  
     IPC::Server::Instance().Publish("keyframes_info", keyframe_info);   // 发布图关键帧  
 }
@@ -233,8 +232,8 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
             loop_detect_->HistoricalPositionSearch(curr_pos, 0, 10, search_ind, search_dis);   // 搜索最近的历史关键帧
             // tt.toc("HistoricalPositionSearch ");
             for (auto& i : search_ind) {
-                std::cout << "knn i:" << 
-                    PoseGraphDataBase::GetInstance().TrajectoryLocalIndexToGlobalIndex(trajectory_, i) << std::endl;
+                std::cout << "knn id:" << 
+                    PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(trajectory_, i).id_ << std::endl;
             }
             /**
              * @todo 如果啥都搜不到呢？
@@ -383,9 +382,10 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                     // 相比于历史轨迹距离足够远就直接进行建图
                     if (min_historical_keyframe_dis > 10) {
                         // 转为纯建图模式
+                        // 搜索最近历史结点的位姿 
                         Eigen::Isometry3d front_pose; 
                         PoseGraphDataBase::GetInstance().SearchVertexPose(search_ind[0], front_pose); 
-                        Eigen::Isometry3d relpose = front_pose.inverse() * pose_in_map; 
+                        Eigen::Isometry3d relpose = front_pose.inverse() * pose_in_map;    // 与最近历史结点的想对位姿
                         // 重新设置该关键帧的连接关系  与 约束 
                         keyframe.adjacent_id_ = search_ind[0];  
                         keyframe.between_constraint_ = relpose;      // 获取该关键帧与上一关键帧之间的相对约束  last<-curr       
@@ -529,34 +529,34 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
     // 遍历全部关键帧队列       
     for (int i = 0; i < num_processed; i++) {
         // 从keyframe_queue中取出关键帧
-        auto& keyframe = this->new_keyframe_queue_[i];
-        auto& points = this->new_keyframe_points_queue_[i];  
+        KeyFrame& keyframe = this->new_keyframe_queue_[i];
+        FeaturePointCloudContainer& points = this->new_keyframe_points_queue_[i];  
         keyframe.id_ = id_;
         ++id_;   
         Eigen::Isometry3d corrected_pose = this->trans_odom2map_ * keyframe.odom_; 
-        // 点云数据加入到回环模块进行处理
-        loop_detect_->AddData(points);    // 点云
-        // 添加节点  
-        if (keyframe.id_ == start_id_) {
+        //  添加到数据库中       返回添加到数据库中的 id 和 local_index  
+        std::pair<uint32_t, uint32_t> id_localIndex = 
+            PoseGraphDataBase::GetInstance().AddKeyFrame<_FeatureT>(trajectory_, corrected_pose, points);   
+        // 关键帧数据加入到回环模块请求回环检测    
+        loop_detect_->AddRequest(id_localIndex.first, id_localIndex.second, points);    
+        // 添加位姿图结点   
+        if (id_localIndex.first == start_id_) {
             // 第一个节点默认 fix
-            optimizer_->AddSe3Node(corrected_pose, keyframe.id_, true);
-            PoseGraphDataBase::GetInstance().AddKeyFrame<_FeatureT>(keyframe, trajectory_, corrected_pose, points);   
+            optimizer_->AddSe3Node(corrected_pose, id_localIndex.first, true);
             continue;
         }
-        //  添加到数据库中  
-        PoseGraphDataBase::GetInstance().AddKeyFrame<_FeatureT>(keyframe, trajectory_, corrected_pose, points);   
-        optimizer_->AddSe3Node(corrected_pose, keyframe.id_); 
+        optimizer_->AddSe3Node(corrected_pose, id_localIndex.first); 
         // 观测噪声
         Eigen::Matrix<double, 1, 6> noise;
         noise << 0.0025, 0.0025, 0.0025, 0.0001, 0.0001, 0.0001;
         // 如果邻接节点id 没有被设置  说明就是与上一个节点连接 
         if (keyframe.adjacent_id_ == -1) {
-            keyframe.adjacent_id_ = keyframe.id_ - 1;  
+            keyframe.adjacent_id_ = id_localIndex.first - 1;  
         }
 
-        optimizer_->AddSe3Edge(keyframe.adjacent_id_, keyframe.id_, keyframe.between_constraint_, noise);  
-        PoseGraphDataBase::GetInstance().AddEdge(trajectory_, keyframe.adjacent_id_, keyframe.id_, 
-                                                                                                        keyframe.between_constraint_, noise);  
+        optimizer_->AddSe3Edge(keyframe.adjacent_id_, id_localIndex.first, keyframe.between_constraint_, noise);  
+        PoseGraphDataBase::GetInstance().AddEdge(trajectory_, keyframe.adjacent_id_, id_localIndex.first, 
+                                                                                                        id_localIndex.second - 1, keyframe.between_constraint_, noise);  
 
         // 与GNSS进行匹配 
         // 寻找有无匹配的GPS   有则

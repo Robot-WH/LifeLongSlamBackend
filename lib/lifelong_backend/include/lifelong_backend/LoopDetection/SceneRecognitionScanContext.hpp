@@ -33,7 +33,7 @@ public:
      * @param {PointCloud<_PointCloudT>} const
      * @return {*}
      */            
-    void AddKeyFramePoints(FeatureContainer const& pcl_in) {
+    uint32_t AddKeyFramePoints(FeatureContainer const& pcl_in) {
         pcl::PointCloud<_PointCloudT> selected_pointcloud; 
         extractInterestPointClouds(pcl_in, selected_pointcloud);
 
@@ -66,6 +66,7 @@ public:
         }
 
         tree_making_period_conter_++;
+        return polarcontexts_sc_.size() - 1;
     }
 
     /**
@@ -89,7 +90,7 @@ public:
 
     /**
      * @brief: 闭环检测
-     * @details: 查找 指定id关键帧的 闭环帧  
+     * @details: 查找 指定index关键帧的 闭环帧  
      * @param index
      * @return <闭环的id, 预测位姿关系>
      */            

@@ -45,20 +45,20 @@ public:
      * @brief: 保存数据
      * @details pose-graph的数据 保存在 session 中  
      */            
-    void Save() {   
+    void Save(const uint16_t& traj) {   
         // 保存keyframe信息 
         assert(database_save_path_ != ""); 
         // 保存pose-graph
         // 节点
-        for (auto& item : vertex_container_) {
+        for (auto& item : traj_vertex_map_[traj]) {
             item.Save(database_save_path_); 
         }
         // for (uint64_t i = 0; i < vertex_container_.size(); i++) {
         //     vertex_container_[i].Save(database_save_path_);  
         // }
         // 边
-        for (uint64_t i = 0; i < edge_container_.size(); i++) {
-            edge_container_[i].Save(database_save_path_);  
+        for (uint64_t i = 0; i < traj_edge_map_[traj].size(); i++) {
+            traj_edge_map_[traj][i].Save(database_save_path_);  
         }
         // 更新info文件
         std::ofstream ofs(database_save_path_ + "/info");
@@ -217,6 +217,8 @@ public:
                 } else if (token == "link_tail") {
                     ifs >> edge.link_id_.second; 
                     //std::cout<<"link_tail: "<<edge.link_id_.second<<std::endl;
+                } else if (token == "link_head_local_index") {
+                    ifs >> edge.link_head_local_index_; 
                 } else if (token == "constraint") {
                     Eigen::Matrix4d matrix; 
 
@@ -237,6 +239,8 @@ public:
                 }
             }
 
+            traj_edge_map_[edge.traj_].push_back(edge); 
+
             if (edge.traj_ != traj) {
                 continue;  
             }
@@ -247,9 +251,10 @@ public:
         return true; 
     }
 
-    void CreateNewSession() {
+    uint16_t CreateNewSession() {
         DataReset();
         ++info_.session_cnt;
+        return info_.session_cnt;
     }
 
     /**
@@ -265,37 +270,49 @@ public:
      * @brief 添加一个关键帧的数据
      * @param  keyframe  关键帧
      */
+
+    /**
+     * @brief 
+     * 
+     * @tparam _PointT 
+     * @param traj 
+     * @param corrected_pose 
+     * @param keyframe_points 
+     * @return std::pair<uint32_t, uint32_t>  vertex的 <全局id，轨迹的局部Index>
+     */
     template<typename _PointT>
-    void AddKeyFrame(KeyFrame& keyframe, 
-                                                uint16_t const& traj, 
-                                                Eigen::Isometry3d const& corrected_pose,
-                                                SlamLib::FeaturePointCloudContainer<_PointT> const& keyframe_points) {
-        keyframe.id_ = info_.keyframe_cnt;
-        database_mt_.lock();  
-        keyframe_database_.push_back(keyframe);  
-        database_mt_.unlock();  
+    std::pair<uint32_t, uint32_t> AddKeyFrame(uint16_t const& traj, Eigen::Isometry3d const& corrected_pose,
+                                            SlamLib::FeaturePointCloudContainer<_PointT> const& keyframe_points) {
+        std::pair<uint32_t, uint32_t> res;       // <global id, local index>
         has_new_keyframe_ = true; 
         // 添加节点
-        AddVertex(keyframe.id_, traj, corrected_pose);  
+        res.second = AddVertex(info_.keyframe_cnt, traj, corrected_pose);     // 返回结点位于轨迹中的局部index 
         // 把关键帧点云存储到硬盘里     不消耗内存
         for (auto iter = keyframe_points.begin(); iter != keyframe_points.end(); ++iter) {  
             std::string file_path = database_save_path_ + "/KeyFramePoints/key_frame_" 
-                + iter->first + std::to_string(keyframe.id_) + ".pcd";
+                + iter->first + std::to_string(info_.keyframe_cnt) + ".pcd";
             pcl::io::savePCDFileBinary(file_path, *(iter->second));
         }
 
+        res.first = info_.keyframe_cnt;
         ++info_.keyframe_cnt;
+        return res;  
     }
     
     /**
      * @brief 添加一个位姿图节点
-     * @param  id               My Param doc
-     * @param  pose             My Param doc
+     * 
+     * @param id 
+     * @param traj 
+     * @param pose 
+     * @return uint32_t 位于当前轨迹的index 
      */
-    void AddVertex(uint64_t const& id, uint16_t const& traj, Eigen::Isometry3d const& pose) {
-        global_to_local_ID_[id] = vertex_container_.size();  
-        vertex_container_.emplace_back(id, traj, pose);
+    uint32_t AddVertex(uint64_t const& id, uint16_t const& traj, Eigen::Isometry3d const& pose) {
+        uint32_t local_index = traj_vertex_map_[traj].size();
+        database_vertex_info_.emplace_back(traj, local_index); 
+        traj_vertex_map_[traj].emplace_back(id, traj, pose);
         AddPosePoint(pose);  
+        return local_index;  
     }
 
     /**
@@ -372,8 +389,9 @@ public:
      * @param  noise    约束协方差
      */
     inline void AddEdge(int16_t const& traj, uint64_t const& head_id, uint64_t const& tail_id, 
-            Eigen::Isometry3d const& constraint, Eigen::Matrix<double, 1, 6> const& noise) {
-        edge_container_.emplace_back(traj, info_.edge_cnt, head_id, tail_id, constraint, noise); 
+            const uint32_t& link_head_local_index, Eigen::Isometry3d const& constraint, 
+            Eigen::Matrix<double, 1, 6> const& noise) {
+        traj_edge_map_[traj].emplace_back(traj, info_.edge_cnt, head_id, tail_id, link_head_local_index, constraint, noise);
         ++info_.edge_cnt;
     }
 
@@ -536,32 +554,6 @@ public:
         return true;  
     }
 
-    /**
-     * @brief Get the New Key Frame Index object
-     *                  如果有新加入的关键帧，获取该关键帧在数据库中的index   
-     * @param index 
-     * @return true 
-     * @return false 
-     */
-    bool GetNewKeyFrameIndex(uint64_t& index) {
-        if (!has_new_keyframe_) {
-            return false;  
-        }
-
-        boost::shared_lock<boost::shared_mutex> lock(database_mt_); 
-        index = vertex_database_.size() - 1;  
-        has_new_keyframe_ = false; 
-        return true;  
-    }
-
-    /**
-     * @brief Get the Key Frame DataBase object
-     * 
-     * @return std::deque<KeyFrame> const& 
-     */
-    std::deque<KeyFrame> const& GetKeyFrameDataBase() {
-        return keyframe_database_;
-    }
 
     /**
      * @brief Get the All Vertex object
@@ -570,6 +562,16 @@ public:
      */
     std::deque<Vertex>& GetAllVertex() {
         return vertex_container_;
+    }
+
+    /**
+     * @brief Get the Trajectory Vertex object
+     * 
+     * @param traj 
+     * @return std::deque<Vertex>& 
+     */
+    const std::deque<Vertex>& GetTrajectoryVertex(const uint16_t& traj) {
+        return traj_vertex_map_[traj];
     }
 
     /**
@@ -685,6 +687,16 @@ public:
                 traj_edges.push_back(edge);
             }
         }
+    }
+
+    /**
+     * @brief Get the Trajectory Edge object
+     * 
+     * @param traj 
+     * @return const std::deque<Edge>& 
+     */
+    const std::deque<Edge>& GetTrajectoryEdge(const uint16_t& traj) {
+        return traj_edge_map_[traj];
     }
 
     /**
@@ -924,10 +936,6 @@ public:
     //     cloudKeyFrameRot3D_->points[id].z = q.z();
     //     cloudKeyFrameRot3D_->points[id].intensity = q.w();   
     // }
-
-    uint64_t TrajectoryLocalIndexToGlobalIndex(uint16_t  traj, uint64_t local_index) const {
-        return traj_vertexDatabaseIndex_map_.at(traj)[local_index];
-    }
 
     /**
      * @brief 
