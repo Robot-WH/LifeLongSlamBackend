@@ -162,12 +162,12 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
         return; 
     }
     
-    Eigen::Isometry3d between_constraint = last_keyframe_odom_.inverse() * odom;
-    last_keyframe_odom_ = odom;  
     std::unique_lock<std::shared_mutex> lock(this->keyframe_queue_sm_);
     // 将输入的数据放入待处理队列 
     KeyFrame keyframe(lidar_data.timestamp_start_, odom);
-    keyframe.between_constraint_ = between_constraint;      // 获取该关键帧与上一关键帧之间的相对约束  last<-curr 
+    // 获取该关键帧与上一关键帧之间的相对约束  last <- curr
+    keyframe.between_constraint_ = odom.inverse() * last_keyframe_odom_;  
+    last_keyframe_odom_ = odom;    
     this->new_keyframe_queue_.push_back(keyframe);     
     this->new_keyframe_points_queue_.push_back(lidar_data.pointcloud_data_); 
     // 如果是建图阶段   则需要发布图优化相关数据   供其他模块使用    
@@ -384,10 +384,14 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                         // 转为纯建图模式
                         // 搜索最近历史结点的位姿 
                         Eigen::Isometry3d front_pose; 
-                        PoseGraphDataBase::GetInstance().SearchVertexPose(search_ind[0], front_pose); 
-                        Eigen::Isometry3d relpose = front_pose.inverse() * pose_in_map;    // 与最近历史结点的想对位姿
+                        // PoseGraphDataBase::GetInstance().SearchVertexPose(search_ind[0], front_pose); 
+                        Vertex nearest_vertex = PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(trajectory_, search_ind[0]);
+                        Eigen::Isometry3d relpose = pose_in_map.inverse() * nearest_vertex.pose_;    // 与最近历史结点的想对位姿
+                        std::cout << "扩展建图，连接的轨迹：" << trajectory_ << ", 连接的结点id: " << nearest_vertex.id_
+                            << ", relpose: " << std::endl << relpose.matrix() << std::endl;
                         // 重新设置该关键帧的连接关系  与 约束 
-                        keyframe.adjacent_id_ = search_ind[0];  
+                        // keyframe.adjacent_id_ = search_ind[0];  
+                        keyframe.adjacent_id_ = nearest_vertex.id_;  
                         keyframe.between_constraint_ = relpose;      // 获取该关键帧与上一关键帧之间的相对约束  last<-curr       
                         work_mode_ = WorkMode::MAPPING;
                         this->trans_odom2map_ = pose_in_map * keyframe.odom_.inverse();  
@@ -539,9 +543,8 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
             PoseGraphDataBase::GetInstance().AddKeyFrame<_FeatureT>(trajectory_, corrected_pose, points);   
         // 关键帧数据加入到回环模块请求回环检测    
         loop_detect_->AddRequest(id_localIndex.first, id_localIndex.second, points);    
-        // 添加位姿图结点   
-        if (id_localIndex.first == start_id_) {
-            // 第一个节点默认 fix
+        // 每段轨迹的第一个结点 fix 
+        if (id_localIndex.second == 0) {
             optimizer_->AddSe3Node(corrected_pose, id_localIndex.first, true);
             continue;
         }
@@ -554,10 +557,11 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
             keyframe.adjacent_id_ = id_localIndex.first - 1;  
         }
 
-        optimizer_->AddSe3Edge(keyframe.adjacent_id_, id_localIndex.first, keyframe.between_constraint_, noise);  
-        PoseGraphDataBase::GetInstance().AddEdge(trajectory_, keyframe.adjacent_id_, id_localIndex.first, 
-                                                                                                        id_localIndex.second - 1, keyframe.between_constraint_, noise);  
-
+        optimizer_->AddSe3Edge(id_localIndex.first, keyframe.adjacent_id_, keyframe.between_constraint_, noise);  
+        PoseGraphDataBase::GetInstance().AddEdge(trajectory_, id_localIndex.first, keyframe.adjacent_id_, 
+                                                                                                        id_localIndex.second , keyframe.between_constraint_, noise);  
+        std::cout << "AddEdge, trajectory_: " << trajectory_ << " adjacent_id: " << keyframe.adjacent_id_ << ", curr_id: " << id_localIndex.first
+            << std::endl;
         // 与GNSS进行匹配 
         // 寻找有无匹配的GPS   有则
         // if (!pairGnssOdomInSingle(GNSS_queue, keyframe))                // return true 匹配完成   false 继续等待数据  
