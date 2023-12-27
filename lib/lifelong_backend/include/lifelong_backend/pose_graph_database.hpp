@@ -929,9 +929,6 @@ public:
         traj_vertex_map_[source_traj].insert(traj_vertex_map_[source_traj].end(), 
                                                                                         traj_vertex_map_[target_traj].begin(),
                                                                                         traj_vertex_map_[target_traj].end());
-        traj_edge_map_[source_traj].insert(traj_edge_map_[source_traj].end(), 
-                                                                                        traj_edge_map_[target_traj].begin(),
-                                                                                        traj_edge_map_[target_traj].end());
         std::cout << "合并后，vertex size: " << traj_vertex_map_[source_traj].size() << std::endl;
         // 更新info
         for (auto& info : database_vertex_info_) {
@@ -940,6 +937,14 @@ public:
                 info.second += source_traj_size;
             }
         }
+        
+        for (auto& edge : traj_edge_map_[target_traj]) {
+            edge.link_head_local_index_ += source_traj_size;
+        }
+
+        traj_edge_map_[source_traj].insert(traj_edge_map_[source_traj].end(), 
+                                                                                traj_edge_map_[target_traj].begin(),
+                                                                                traj_edge_map_[target_traj].end());
         // 删除target
         traj_vertex_map_.erase(target_traj); 
         traj_edge_map_.erase(target_traj); 
