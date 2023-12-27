@@ -92,7 +92,7 @@ public:
      * @brief: 闭环检测
      * @details: 查找 指定index关键帧的 闭环帧  
      * @param index
-     * @return <闭环的id, 预测位姿关系>
+     * @return <闭环的全局index, 预测位姿关系>
      */            
     std::pair<int64_t, Eigen::Isometry3d> LoopDetect(uint32_t const& index) {
         std::cout << SlamLib::color::YELLOW << "场景识别，当前帧index: " << index << std::endl;
@@ -244,7 +244,7 @@ protected:
      * @details 步骤： 1、先通过 ringkey 找到 候选帧   2、
      * @param ring_key ring key 描述子
      * @param sc_desc SC描述子 
-     * @return <id, 相对变换>
+     * @return <index, 相对变换>
      */            
     std::pair<int64_t, Eigen::Isometry3d> descFindSimilar( const std::vector<float>& ring_key, 
                                                                                                                          const Eigen::MatrixXd& sc_desc) {

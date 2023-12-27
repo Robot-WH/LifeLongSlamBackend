@@ -311,7 +311,7 @@ public:
         uint32_t local_index = traj_vertex_map_[traj].size();
         database_vertex_info_.emplace_back(traj, local_index); 
         traj_vertex_map_[traj].emplace_back(id, traj, pose);
-        AddPosePoint(pose);  
+        AddPosePoint(traj, pose);  
         return local_index;  
     }
 
@@ -457,9 +457,9 @@ public:
      */
     Vertex GetVertexByID(uint64_t id) const {
         // 如果在内存中直接读取
-        if (global_to_local_ID_.find(id) != global_to_local_ID_.end()) {
-            return vertex_container_[global_to_local_ID_.at(id)];
-        }
+        // if (global_to_local_ID_.find(id) != global_to_local_ID_.end()) {
+        //     return vertex_container_[global_to_local_ID_.at(id)];
+        // }
         // 读取磁盘  构造vertex 
         Vertex vertex; 
         std::ifstream ifs(database_save_path_ + "/Vertex/id_" + std::to_string(id));
@@ -570,7 +570,7 @@ public:
      * @param traj 
      * @return std::deque<Vertex>& 
      */
-    const std::deque<Vertex>& GetTrajectoryVertex(const uint16_t& traj) {
+    std::deque<Vertex>& GetTrajectoryVertex(const uint16_t& traj) {
         return traj_vertex_map_[traj];
     }
 
@@ -916,6 +916,36 @@ public:
     }
 
     /**
+     * @brief 合并两个轨迹
+     *      将target 合并到source 
+     * @param source_traj 
+     * @param target_traj 
+     */
+    void MergeTrajectory(uint16_t source_traj, uint16_t target_traj) {
+        std::cout << "MergeTrajectory, source_traj: " << source_traj << ", target_traj: " << target_traj
+            << std::endl;
+        std::cout << "合并前，vertex size: " << traj_vertex_map_[source_traj].size() << std::endl;
+        uint32_t source_traj_size = traj_vertex_map_[source_traj].size();
+        traj_vertex_map_[source_traj].insert(traj_vertex_map_[source_traj].end(), 
+                                                                                        traj_vertex_map_[target_traj].begin(),
+                                                                                        traj_vertex_map_[target_traj].end());
+        traj_edge_map_[source_traj].insert(traj_edge_map_[source_traj].end(), 
+                                                                                        traj_edge_map_[target_traj].begin(),
+                                                                                        traj_edge_map_[target_traj].end());
+        std::cout << "合并后，vertex size: " << traj_vertex_map_[source_traj].size() << std::endl;
+        // 更新info
+        for (auto& info : database_vertex_info_) {
+            if (info.first == target_traj) {
+                info.first = source_traj;
+                info.second += source_traj_size;
+            }
+        }
+        // 删除target
+        traj_vertex_map_.erase(target_traj); 
+        traj_edge_map_.erase(target_traj); 
+    }
+
+    /**
      * @brief 
      * 
      * @param id 
@@ -981,10 +1011,13 @@ private:
     std::deque<KeyFrame> keyframe_database_; // 保存全部关键帧的观测信息   
     
     std::deque<Vertex> vertex_database_;    // 缓存数据库中全部结点信息 
+
     std::deque<std::pair<uint16_t, uint32_t>> database_vertex_info_;     // <traj，local_index>
     std::unordered_map<uint16_t, std::deque<Vertex>> traj_vertex_map_;
     std::unordered_map<uint16_t, std::deque<uint64_t>> traj_vertexDatabaseIndex_map_;
     std::unordered_map<uint16_t, std::deque<Edge>> traj_edge_map_;
+
+
 
     std::deque<Edge> edge_container_; // 保存图节点
     std::deque<Vertex> vertex_container_; // 保存图的边

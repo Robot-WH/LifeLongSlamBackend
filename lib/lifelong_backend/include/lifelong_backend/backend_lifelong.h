@@ -140,5 +140,6 @@ private:
     uint16_t new_external_constranit_num_;  // 新加的外部约束数量(GPS，地面, IMU..)  决定是否要进行一次全局优化  
     WorkMode work_mode_; 
     Eigen::Isometry3d last_keyframe_odom_;  
+    KeyFrame last_add_database_keyframe_;
 }; // class 
 } // namespace 

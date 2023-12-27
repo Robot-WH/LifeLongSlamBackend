@@ -9,6 +9,7 @@
  */
 #pragma once 
 #include <thread>
+#include <glog/logging.h>
 #include "SlamLib/Common/pointcloud.h"
 #include "SlamLib/Common/color.hpp"
 #include "SlamLib/PointCloud/Registration/alignEvaluate.hpp"
@@ -47,6 +48,7 @@ private:
     using ConstFeaturePointcloudContainer = SlamLib::ConstFeaturePointCloudContainer<_PointType>;
     using FeaturePointcloudContainer = SlamLib::FeaturePointCloudContainer<_PointType>;
     using RegistrationPtr = std::unique_ptr<SlamLib::pointcloud::RegistrationBase<_PointType>>;   
+    
     struct LoopKeyframeInfo {
         LoopKeyframeInfo(const uint32_t& id, const uint32_t& global_index, 
             const uint32_t& local_index) : global_index_(global_index), id_(id), local_index_(local_index) {}
@@ -54,6 +56,7 @@ private:
         uint32_t global_index_;
         uint32_t local_index_;
     };
+
 public:
     LoopDetection(LoopDetectionOption option) : SCORE_THRESH_(option.score_thresh), 
             OVERLAP_THRESH_(option.overlap_thresh), MIN_SCORE_(option.min_score) {
@@ -92,10 +95,16 @@ public:
     void AddRequest(const uint32_t& id, const uint32_t& local_index, FeaturePointcloudContainer const& scan_in) {
         uint32_t global_index = scene_recognizer_.AddKeyFramePoints(scan_in);
         processed_queue_mt_.lock();
-        wait_processed_keyframe_.emplace_back(id, global_index, local_index); //  <global_index, global_id, local_index>
+        wait_processed_keyframe_.emplace_back(id, global_index, local_index); 
         processed_queue_mt_.unlock();   
     }
 
+    /**
+     * @brief 
+     * 
+     * @param scan_in 
+     * @return RelocResult 
+     */
     RelocResult Relocalization(const FeaturePointcloudContainer& scan_in) {   
         SlamLib::time::TicToc tt; 
         // step1 先识别出相似帧，这里得到的是数据库的全局Index   
@@ -110,8 +119,8 @@ public:
         PoseGraphDataBase& poseGraph_database = PoseGraphDataBase::GetInstance(); 
         // 从数据库中读取该回环的vertex 信息
         Vertex loop_vertex = poseGraph_database.GetVertexByDatabaseIndex(res.first);  
-        std::cout << " curr_trajectory_id_: " << curr_trajectory_id_ << ",loop_vertex.traj_: "
-                << loop_vertex.traj_ << ",loop_vertex.id_: " << loop_vertex.id_ << std::endl;
+        // std::cout << " curr_trajectory_id_: " << curr_trajectory_id_ << ",loop_vertex.traj_: "
+        //         << loop_vertex.traj_ << ",loop_vertex.id_: " << loop_vertex.id_ << std::endl;
         // 检测轨迹是否变化
         if (loop_vertex.traj_ != curr_trajectory_id_) {
             std::cout << "跨轨迹重定位! " << std::endl;
@@ -466,11 +475,11 @@ protected:
                     // 场景识别模块工作  寻找相似帧
                     res = scene_recognizer_.LoopDetect(curr_keyframe_info.global_index_);   // 传入待识别的帧id 
                     tt.toc(" scene_recognize  ");  // 2ms
-                    Vertex vertex;  // 回环结点  
+                    Vertex loop_vertex;  // 回环结点  
                     // 如果场景识别没有找到相似帧   用位置搜索继续找回环
                     if (res.first == -1) {
                         // std::cout << "远距离回环，描述子搜索失败，转为位置搜索，id: " << long_range_loop_id
-                        //     << ",dis: " << long_range_loop_dis << std::endl;
+                        //     << ",dis: " << long_range_loop_dis << std::res.first, endl;
                         // // 回环最远接收 x-y 10m的距离(太远匹配就不准，影响回环的准确性)，
                         // // 假设远距离回环时，odom的误差最大接受 x-y 20m, 那么远距离回环时odom的最大距离就是30m
                         // res.first = long_range_loop_id;  
@@ -491,12 +500,32 @@ protected:
                         continue;  
                     } else {
                         // 获取回环的结点信息
-                        vertex = poseGraph_database.GetVertexByID(res.first);          
-                        std::cout << "回环traj: " << vertex.traj_ << std::endl;
+                        loop_vertex = poseGraph_database.GetVertexByDatabaseIndex(res.first);          
+                        std::cout << "回环traj: " << loop_vertex.traj_ << std::endl;
                         // 当前帧位姿转换到世界系下
-                        // Eigen::Isometry3d historical_pose;
-                        // poseGraph_database.SearchVertexPose(res.first, historical_pose);
-                        res.second = vertex.pose_ * res.second;    // 位姿初始值
+                        res.second = loop_vertex.pose_ * res.second;    // 位姿初始值
+                    }
+
+                    if (loop_vertex.traj_ != curr_trajectory_id_) {
+                        std::cout << "跨轨迹回环! " << std::endl;
+                        // 变化则要更新位姿搜索kdtree 
+                        pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
+                            PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud(loop_vertex.traj_);  
+                        kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
+                        last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
+                        curr_trajectory_id_ = loop_vertex.traj_;  
+                    } else {
+                    }
+                    // 通过kdtree 在同一条轨迹的历史结点中搜索若干个距离回环结点最接近的若干结点
+                    pcl::PointXYZ loop_vertex_position; 
+                    loop_vertex_position.x = loop_vertex.pose_.translation().x();
+                    loop_vertex_position.y = loop_vertex.pose_.translation().y();
+                    loop_vertex_position.z = loop_vertex.pose_.translation().z();
+                    std::vector<int> search_ind;
+                    std::vector<float> search_dis;
+                    if(HistoricalPositionSearch(loop_vertex_position, 20, 10, search_ind, search_dis) == 0) {
+                        LOG(INFO) << "回环目标 kdtree 近邻搜索的数量为0";
+                        continue;
                     }
                 // } 
                 // else {
@@ -530,14 +559,18 @@ protected:
                     // local map 
                     typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
                     std::cout << "粗匹配提取点云,name: " << name << std::endl;
-                    if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(
-                                res.first, 
-                                5,  // 前后5个帧组成local map  
-                                name, 
-                                local_map)) {
-                        std::cout << SlamLib::color::RED << "find local map error " << name 
-                            << SlamLib::color::RESET << std::endl;    
-                        continue;
+                    // if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(
+                    //             res.first, 
+                    //             5,  // 前后5个帧组成local map  
+                    //             name, 
+                    //             local_map)) {
+                    //     std::cout << SlamLib::color::RED << "find local map error " << name 
+                    //         << SlamLib::color::RESET << std::endl;    
+                    //     continue;
+                    // }
+
+                    if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
+                        continue;  
                     }
 
                     rough_registration_->SetInputSource(std::make_pair(name, local_map)); 
@@ -570,8 +603,11 @@ protected:
                     if (localmaps.find(name) != localmaps.end()) {
                         local_map = localmaps[name];  
                     } else {
-                        if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(
-                                res.first, 5, name, local_map)) {
+                        // if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(
+                        //         res.first, 5, name, local_map)) {
+                        //     continue;  
+                        // }
+                        if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
                             continue;  
                         }
 
@@ -605,9 +641,12 @@ protected:
                 if (localmaps.find(evaluative_pointcloud_label_) != localmaps.end()) {
                     evaluative_local_map = localmaps[evaluative_pointcloud_label_];  
                 } else {  
-                    if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(
-                            res.first, 5, evaluative_pointcloud_label_, evaluative_local_map)) {
-                        continue; 
+                    // if (!poseGraph_database.GetAdjacentLinkNodeLocalMap<_PointType>(
+                    //         res.first, 5, evaluative_pointcloud_label_, evaluative_local_map)) {
+                    //     continue; 
+                    // }
+                    if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, evaluative_pointcloud_label_, evaluative_local_map)) {
+                        continue;  
                     }
                 }
 
@@ -661,13 +700,14 @@ protected:
                 }
                 // 添加新增回环边
                 LoopEdge new_loop; 
-                new_loop.loop_traj_ = vertex.traj_;  
-                new_loop.link_id_.first = res.first;
+                new_loop.loop_traj_ = loop_vertex.traj_;  
+                new_loop.link_id_.first = loop_vertex.id_;
                 new_loop.link_id_.second = curr_keyframe_info.id_;
                 new_loop.link_head_local_index_ = curr_keyframe_info.local_index_;   
-                Eigen::Isometry3d historical_pose;
-                poseGraph_database.SearchVertexPose(res.first, historical_pose);
-                new_loop.constraint_ = historical_pose.inverse() * res.second;// T second -> first
+                new_loop.constraint_ = loop_vertex.pose_.inverse() * res.second;// T second -> first
+                new_loop.loop_vertex_pose_ = loop_vertex.pose_;
+                std::cout << "loop link_id_.first: " << new_loop.link_id_.first
+                    << ", link_id_.second: " << curr_keyframe_info.id_ << std::endl;
                 // Eigen::Matrix<double, 1, 6> noise;
                 // noise << 0.0025, 0.0025, 0.0025, 0.0001, 0.0001, 0.0001;
                 /**
@@ -676,7 +716,6 @@ protected:
                 new_loop.noise_ << 0.0025, 0.0025, 0.0025, 0.0001, 0.0001, 0.0001;
                 loop_mt_.lock();
                 new_loops_.push_back(std::move(new_loop));  
-                std::cout << "add new_loops_ size: " << new_loops_.size() << std::endl;
                 loop_mt_.unlock();  
             }
 

@@ -83,7 +83,7 @@ struct Edge {
 
     int16_t traj_ = -1;     // 该edge所属的轨迹
     uint64_t id_ = 0;   // 该边的全局id  
-    uint32_t link_head_local_index_ = 0;    // 连接头结点在位姿图中的局部index，用于可视化    
+    uint32_t link_head_local_index_ = 0;    // 连接头结点在位姿图中的局部index    
     std::pair<uint64_t, uint64_t> link_id_{0, 0};     // 该边 连接的 节点 全局id 
     Eigen::Isometry3d constraint_ = Eigen::Isometry3d::Identity();
     Eigen::Matrix<double, 1, 6> noise_ = Eigen::Matrix<double, 1, 6>::Zero();     // 6 dof 约束的 噪声 向量  xyz  + rpy
@@ -95,10 +95,11 @@ struct Edge {
  */
 struct LoopEdge : public Edge {
     LoopEdge() {}
-    LoopEdge(int16_t traj, int16_t loop_traj, uint64_t id, uint64_t head_id, uint64_t tail_id, 
-            const uint32_t& link_head_local_index, Eigen::Isometry3d const& constraint, 
-            Eigen::Matrix<double, 1, 6> const& noise) 
-                : Edge(traj, id, head_id, tail_id, link_head_local_index, constraint, noise), loop_traj_(loop_traj) {}
+    // LoopEdge(int16_t traj, int16_t loop_traj, uint64_t id, uint64_t head_id, uint64_t tail_id, 
+    //         const uint32_t& link_head_local_index, Eigen::Isometry3d const& constraint, 
+    //         Eigen::Matrix<double, 1, 6> const& noise) 
+    //             : Edge(traj, id, head_id, tail_id, link_head_local_index, constraint, noise), loop_traj_(loop_traj) {}
     int16_t loop_traj_ = -1;   // 闭环的轨迹的id   
+    Eigen::Isometry3d loop_vertex_pose_; 
 };
 }
