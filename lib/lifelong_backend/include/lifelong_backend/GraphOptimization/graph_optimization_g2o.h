@@ -91,7 +91,7 @@ public:
     /**
      * @brief: 根据节点信息和边的信息重建位姿图   
      */    
-    void Rebuild(std::deque<Vertex> const& vertexs, std::deque<Edge> const& edges) override; 
+    void Rebuild(std::vector<Vertex> const& vertexs, std::vector<Edge> const& edges) override; 
     // 优化
     bool Optimize(uint8_t flag = 0) override;
     void Reset() override;  

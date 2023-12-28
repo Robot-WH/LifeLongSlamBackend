@@ -111,6 +111,8 @@ public:
             }
         }
 
+        database_vertex_info_.reserve(3000);
+
         if (!LoadPoseGraph(traj)) {
             DataReset(); 
             LOG(INFO) << SlamLib::color::RED<<"Load Pose-Graph failure" 
@@ -252,8 +254,9 @@ public:
     }
 
     uint16_t CreateNewSession() {
-        DataReset();
         ++info_.session_cnt;
+        traj_vertex_map_[info_.session_cnt].reserve(1000);
+        traj_edge_map_[info_.session_cnt].reserve(1000);
         return info_.session_cnt;
     }
 
@@ -400,13 +403,13 @@ public:
      * 
      * @param edge 
      */
-    inline void AddEdge(Edge& edge, bool new_edge = true) {
+    inline void AddEdge(uint16_t const& traj, Edge& edge, bool new_edge = true) {
         if (new_edge) {
             edge.id_ = info_.edge_cnt; 
             ++info_.edge_cnt;
         }
-
-        edge_container_.push_back(edge); 
+        edge.traj_ = traj;  
+        traj_edge_map_[traj].push_back(edge);
     }
 
     /**
@@ -429,7 +432,7 @@ public:
      */
     uint64_t GetTrajectorVertexNum(uint16_t traj) {
         database_mt_.lock_shared();
-        uint64_t num = traj_vertexDatabaseIndex_map_[traj].size();
+        uint64_t num = traj_vertex_map_[traj].size();
         database_mt_.unlock_shared();
         return num;  
     }
@@ -570,7 +573,7 @@ public:
      * @param traj 
      * @return std::deque<Vertex>& 
      */
-    std::deque<Vertex>& GetTrajectoryVertex(const uint16_t& traj) {
+    std::vector<Vertex>& GetTrajectoryVertex(const uint16_t& traj) {
         return traj_vertex_map_[traj];
     }
 
@@ -695,7 +698,7 @@ public:
      * @param traj 
      * @return const std::deque<Edge>& 
      */
-    const std::deque<Edge>& GetTrajectoryEdge(const uint16_t& traj) {
+    const auto& GetTrajectoryEdge(const uint16_t& traj) {
         return traj_edge_map_[traj];
     }
 
@@ -922,14 +925,14 @@ public:
      * @param target_traj 
      */
     void MergeTrajectory(uint16_t source_traj, uint16_t target_traj) {
-        std::cout << "MergeTrajectory, source_traj: " << source_traj << ", target_traj: " << target_traj
-            << std::endl;
-        std::cout << "合并前，vertex size: " << traj_vertex_map_[source_traj].size() << std::endl;
+        // std::cout << "MergeTrajectory, source_traj: " << source_traj << ", target_traj: " << target_traj
+        //     << std::endl;
+        // std::cout << "合并前，vertex size: " << traj_vertex_map_[source_traj].size() << std::endl;
         uint32_t source_traj_size = traj_vertex_map_[source_traj].size();
         traj_vertex_map_[source_traj].insert(traj_vertex_map_[source_traj].end(), 
                                                                                         traj_vertex_map_[target_traj].begin(),
                                                                                         traj_vertex_map_[target_traj].end());
-        std::cout << "合并后，vertex size: " << traj_vertex_map_[source_traj].size() << std::endl;
+        // std::cout << "合并后，vertex size: " << traj_vertex_map_[source_traj].size() << std::endl;
         // 更新info
         for (auto& info : database_vertex_info_) {
             if (info.first == target_traj) {
@@ -937,17 +940,23 @@ public:
                 info.second += source_traj_size;
             }
         }
-        
+
         for (auto& edge : traj_edge_map_[target_traj]) {
+            edge.traj_ = source_traj; 
             edge.link_head_local_index_ += source_traj_size;
         }
 
         traj_edge_map_[source_traj].insert(traj_edge_map_[source_traj].end(), 
                                                                                 traj_edge_map_[target_traj].begin(),
                                                                                 traj_edge_map_[target_traj].end());
+        // 合并位姿点云     
+        *traj_keyframePositionCloud_[source_traj] += *traj_keyframePositionCloud_[target_traj];
+        *traj_keyframeRotCloud_[source_traj] += *traj_keyframeRotCloud_[target_traj];
         // 删除target
         traj_vertex_map_.erase(target_traj); 
         traj_edge_map_.erase(target_traj); 
+        traj_keyframeRotCloud_.erase(target_traj);
+        traj_keyframePositionCloud_.erase(target_traj);
     }
 
     /**
@@ -1015,13 +1024,19 @@ private:
      */
     std::deque<KeyFrame> keyframe_database_; // 保存全部关键帧的观测信息   
     
-    std::deque<Vertex> vertex_database_;    // 缓存数据库中全部结点信息 
 
-    std::deque<std::pair<uint16_t, uint32_t>> database_vertex_info_;     // <traj，local_index>
-    std::unordered_map<uint16_t, std::deque<Vertex>> traj_vertex_map_;
+    std::vector<std::pair<uint16_t, uint32_t>> database_vertex_info_;     // <traj，local_index>
+    std::unordered_map<uint16_t, std::vector<Vertex>> traj_vertex_map_;
     std::unordered_map<uint16_t, std::deque<uint64_t>> traj_vertexDatabaseIndex_map_;
-    std::unordered_map<uint16_t, std::deque<Edge>> traj_edge_map_;
+    std::unordered_map<uint16_t, std::vector<Edge>> traj_edge_map_;
 
+    /**
+     * @todo 尝试下面的数据结构  
+     * 
+     */
+    std::vector<Vertex> vertex_database_;    // 缓存数据库中全部结点信息 
+    std::unordered_map<uint16_t, std::list<uint32_t>> traj_vertex_list_;
+    std::unordered_map<uint16_t, std::list<Edge>> traj_edge_list_;
 
 
     std::deque<Edge> edge_container_; // 保存图节点

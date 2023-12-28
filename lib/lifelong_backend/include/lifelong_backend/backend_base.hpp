@@ -21,8 +21,8 @@ template<typename _T>
 struct KeyFrameInfo {
     double time_stamps_;  
     std::deque<KeyFrame> new_keyframes_;
-    std::deque<Vertex> vertex_database_; 
-    std::deque<Edge> edge_database_; 
+    std::vector<Vertex> vertex_database_; 
+    std::vector<Edge> edge_database_; 
 };
 
 template<typename _T>

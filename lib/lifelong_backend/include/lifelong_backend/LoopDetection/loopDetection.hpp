@@ -123,7 +123,7 @@ public:
         //         << loop_vertex.traj_ << ",loop_vertex.id_: " << loop_vertex.id_ << std::endl;
         // 检测轨迹是否变化
         if (loop_vertex.traj_ != curr_trajectory_id_) {
-            std::cout << "跨轨迹重定位! " << std::endl;
+            std::cout << "跨轨迹重定位! 将轨迹node位姿数据添加到node搜索kdtree " << std::endl;
             // 变化则要更新位姿搜索kdtree 
             pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
                 PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud(loop_vertex.traj_);  
@@ -131,8 +131,9 @@ public:
             last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
             curr_trajectory_id_ = loop_vertex.traj_;  
         } else {
+
         }
-        // 通过kdtree 在同一条轨迹的历史结点中搜索若干个距离回环结点最接近的若干结点
+        // 通过kdtree 在同一条轨迹的历史结点中搜索若干个距离回环结点最接近的若干结点组成local map  
         pcl::PointXYZ loop_vertex_position; 
         loop_vertex_position.x = loop_vertex.pose_.translation().x();
         loop_vertex_position.y = loop_vertex.pose_.translation().y();
@@ -370,24 +371,7 @@ protected:
                 static pcl::PointCloud<pcl::PointXYZ>::Ptr last_keyframe_position_cloud(nullptr);
                 pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
                     poseGraph_database.GetKeyFramePositionCloud();  
-
-                // // 判断是否需要更新位姿kdtree  
-                // if (keyframe_position_cloud->size() - last_keyframe_position_kdtree_size_ 
-                //         >= MIN_LOOP_FRAME_INTERVAL_ ) {
-                //     if (last_keyframe_position_cloud == nullptr) {
-                //         last_keyframe_position_cloud = keyframe_position_cloud;
-                //         last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();  
-                //         continue;  
-                //     }
-                //     // SlamLib::time::TicToc tt;
-                //     std::cout << SlamLib::color::GREEN << "updata loop kdtree! size: " 
-                //         << last_keyframe_position_cloud->size() << SlamLib::color::RESET << std::endl;
-                //     kdtreeHistoryKeyPoses->setInputCloud(last_keyframe_position_cloud);
-                //     // tt.toc("updata loop kdtree ");    // 耗时 0.5 ms 
-                //     last_keyframe_position_cloud = keyframe_position_cloud;
-                //     last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();  
-                // }
-                
+  
                 // if (last_keyframe_position_kdtree_size_ < 2 * MIN_LOOP_FRAME_INTERVAL_) {
                 //     std::chrono::milliseconds dura(50);
                 //     std::this_thread::sleep_for(dura);
@@ -515,6 +499,28 @@ protected:
                         last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
                         curr_trajectory_id_ = loop_vertex.traj_;  
                     } else {
+                        pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
+                            PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud(curr_trajectory_id_); 
+                        // 判断是否需要更新位姿kdtree  
+                        if (keyframe_position_cloud->size() - last_keyframe_position_kdtree_size_ 
+                                >= MIN_LOOP_FRAME_INTERVAL_ ) {
+                            if (last_keyframe_position_cloud == nullptr) {
+                                last_keyframe_position_cloud = keyframe_position_cloud;
+                                last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();  
+                                continue;  
+                            }
+                            // SlamLib::time::TicToc tt;
+                            std::cout << SlamLib::color::GREEN << "updata loop kdtree! size: " 
+                                << last_keyframe_position_cloud->size() << SlamLib::color::RESET << std::endl;
+                            kdtreeHistoryKeyPoses->setInputCloud(last_keyframe_position_cloud);
+                            // tt.toc("updata loop kdtree ");    // 耗时 0.5 ms 
+                            last_keyframe_position_cloud = keyframe_position_cloud;
+                            last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();  
+                        } 
+
+                        std::cout << "同轨迹回环! " << std::endl;
+                        std::cout << "last_keyframe_position_kdtree_size: " << last_keyframe_position_kdtree_size_
+                            << ", 当前size: " << keyframe_position_cloud->size() << std::endl;
                     }
                     // 通过kdtree 在同一条轨迹的历史结点中搜索若干个距离回环结点最接近的若干结点
                     pcl::PointXYZ loop_vertex_position; 
@@ -523,10 +529,12 @@ protected:
                     loop_vertex_position.z = loop_vertex.pose_.translation().z();
                     std::vector<int> search_ind;
                     std::vector<float> search_dis;
-                    if(HistoricalPositionSearch(loop_vertex_position, 20, 10, search_ind, search_dis) == 0) {
+
+                    if(kdtreeHistoryKeyPoses->radiusSearch(loop_vertex_position, 30, search_ind, search_dis, 10) == 0) {
                         LOG(INFO) << "回环目标 kdtree 近邻搜索的数量为0";
                         continue;
                     }
+
                 // } 
                 // else {
                 //     std::cout << "近距离回环，位置搜索，id: " << short_range_loop_id

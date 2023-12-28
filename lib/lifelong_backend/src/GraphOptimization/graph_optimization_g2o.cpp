@@ -45,8 +45,8 @@ G2oGraphOptimizer::G2oGraphOptimizer(const std::string& solver_type) {
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void G2oGraphOptimizer::Rebuild(std::deque<Vertex> const& vertexs, 
-                                                                        std::deque<Edge> const& edges) {
+void G2oGraphOptimizer::Rebuild(std::vector<Vertex> const& vertexs, 
+                                                                        std::vector<Edge> const& edges) {
     bool is_first = true;  
     bool need_fix = true; 
 

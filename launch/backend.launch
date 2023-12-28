@@ -5,7 +5,7 @@
     <!--启动配置好的rviz-->
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(find lifelong_backend)/rviz/system.rviz" />
     
-    <!-- <node name="nmea_topic_driver" pkg="nmea_navsat_driver" type="nmea_topic_driver" output="screen" /> -->
-    <node name="backend_node" pkg="lifelong_backend" type="backend_node" output="screen">
+    <!-- <node name="nmea_topic_driver" pkg="nmea_navsat_driver" type="nmea_topic_driver" output="screen" /> -->    
+    <node name="backend_node" pkg="lifelong_backend" type="backend_node" output="screen" >
     </node>
 </launch>

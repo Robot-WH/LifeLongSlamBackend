@@ -18,7 +18,7 @@ namespace lifelong_backend {
 class GraphOptimizerInterface {
 public:
   virtual ~GraphOptimizerInterface() {}
-  virtual void Rebuild(std::deque<Vertex> const& vertexs, std::deque<Edge> const& edges) = 0; 
+  virtual void Rebuild(std::vector<Vertex> const& vertexs, std::vector<Edge> const& edges) = 0; 
   // 优化
   virtual bool Optimize(uint8_t flag = 0) = 0;
   virtual void Reset() {}

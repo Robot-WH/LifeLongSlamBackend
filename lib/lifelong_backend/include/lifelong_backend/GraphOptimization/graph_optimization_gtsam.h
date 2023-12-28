@@ -29,7 +29,7 @@ namespace lifelong_backend {
 class GtsamGraphOptimizer: public GraphOptimizerInterface {
 public:
     GtsamGraphOptimizer();
-    void Rebuild(std::deque<Vertex> const& vertexs, std::deque<Edge> const& edges) override; 
+    void Rebuild(std::vector<Vertex> const& vertexs, std::vector<Edge> const& edges) override; 
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**

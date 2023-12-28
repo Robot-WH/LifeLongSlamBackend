@@ -29,8 +29,8 @@ GtsamGraphOptimizer::GtsamGraphOptimizer() {
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void GtsamGraphOptimizer::Rebuild(std::deque<Vertex> const& vertexs, 
-                                                                            std::deque<Edge> const& edges)
+void GtsamGraphOptimizer::Rebuild(std::vector<Vertex> const& vertexs, 
+                                                                            std::vector<Edge> const& edges)
 {  
 }
 

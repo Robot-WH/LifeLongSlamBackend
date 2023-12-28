@@ -22,9 +22,11 @@ protected:
     using ringKeyKdtree = KDTreeVectorOfVectorsAdaptor< KeyVec, float>;
     using FeatureContainer = SlamLib::FeaturePointCloudContainer<_PointCloudT>;
 public:
-    SceneRecognitionScanContext() {}
-    SceneRecognitionScanContext(std::vector<std::string> target_names) 
-        : target_names_(std::move(target_names)) {}
+    SceneRecognitionScanContext() {
+        tree_making_period_conter_ = TREE_MAKING_PERIOD_ + 1; 
+    }
+    // SceneRecognitionScanContext(std::vector<std::string> target_names) 
+    //     : target_names_(std::move(target_names)) {}
     virtual ~SceneRecognitionScanContext() {}
 
     /**
@@ -40,12 +42,13 @@ public:
         Eigen::MatrixXd sc_desc = sc_.MakeScanContext(selected_pointcloud);                  // v1 提取sc全局特征描述符
         Eigen::MatrixXd ringkey = sc_.MakeRingkeyFromScanContext(sc_desc);   // 求 ring key 特征  
         
+        std::lock_guard<std::mutex> lock(mt_);  
         polarcontexts_sc_.push_back(sc_desc);   // 当前帧点云检测完毕后   SC描述子 存放于 polarcontexts_sc_
         // 保存vector 类型的 ringkey  
         std::vector<float> polarcontext_ringkey = eig2vec(ringkey);
         polarcontext_ringkeys_vec_.push_back(polarcontext_ringkey);
         // 看看是否需要更新kdtree   
-        if (tree_making_period_conter_ % TREE_MAKING_PERIOD_ == 0
+        if (tree_making_period_conter_ > TREE_MAKING_PERIOD_
                 && polarcontext_ringkeys_vec_.size() > NUM_EXCLUDE_RECENT_) { 
             // to save computation cost    频率控制  
             // SlamLib::time::TicToc t_tree_construction;
@@ -63,6 +66,7 @@ public:
                                                             10 // 最后结点的最大叶子数   即kdtree最后一个结点包含元素的最大个数
                                                         )); 
             // t_tree_construction.toc("Tree construction");
+            tree_making_period_conter_ = 0; 
         }
 
         tree_making_period_conter_++;
@@ -97,6 +101,7 @@ public:
     std::pair<int64_t, Eigen::Isometry3d> LoopDetect(uint32_t const& index) {
         std::cout << SlamLib::color::YELLOW << "场景识别，当前帧index: " << index << std::endl;
         Eigen::Isometry3d relpose = Eigen::Isometry3d::Identity();   
+        std::lock_guard<std::mutex> lock(mt_);  
         // 首先将sc描述子提取出来  
         auto curr_ringkey = polarcontext_ringkeys_vec_[index]; // current observation (query)      提取最新一帧ring-key
         auto curr_desc = polarcontexts_sc_[index];   // current observation (query)      提取最新的sc描述子  
@@ -248,6 +253,7 @@ protected:
      */            
     std::pair<int64_t, Eigen::Isometry3d> descFindSimilar( const std::vector<float>& ring_key, 
                                                                                                                          const Eigen::MatrixXd& sc_desc) {
+        std::cout << "descFindSimilar" << std::endl;
         double min_dist = 10000000; // init with somthing large
         int nn_align = 0;
         int64_t nn_idx = 0;
@@ -266,56 +272,57 @@ protected:
                                                                                                     &ring_key[0],  // 当前的描述子 
                                                                                                     nanoflann::SearchParams(10)); 
         // t_tree_search.toc("Tree search");
-        /* 
-        *  step 2: pairwise distance (find optimal columnwise best-fit using cosine distance)    
-                    挑选最佳的候选关键帧   旋转检查
-        */
-        // SlamLib::time::TicToc t_calc_dist;   
-        // 遍历所有候选关键帧       找到距离最近的index 与 旋转量   
-        for (int candidate_iter_idx = 0; candidate_iter_idx < NUM_CANDIDATES_FROM_TREE_; candidate_iter_idx++ ) {   
-            // 获取候选关键帧 的sc描述子  
-            Eigen::MatrixXd polarcontext_candidate = polarcontexts_sc_[candidate_indexes[candidate_iter_idx] ];
-            // 计算描述子的距离  
-            std::pair<double, int> sc_dist_result = sc_.DistanceBtnScanContext(sc_desc, polarcontext_candidate); 
+        // /* 
+        // *  step 2: pairwise distance (find optimal columnwise best-fit using cosine distance)    
+        //             挑选最佳的候选关键帧   旋转检查
+        // */
+        // // SlamLib::time::TicToc t_calc_dist;   
+        // // 遍历所有候选关键帧       找到距离最近的index 与 旋转量   
+        // for (int candidate_iter_idx = 0; candidate_iter_idx < NUM_CANDIDATES_FROM_TREE_; candidate_iter_idx++ ) {   
+        //     std::cout << "candidate_indexes[candidate_iter_idx]: " << candidate_indexes[candidate_iter_idx] << std::endl;
+        //     // 获取候选关键帧 的sc描述子  
+        //     Eigen::MatrixXd polarcontext_candidate = polarcontexts_sc_[candidate_indexes[candidate_iter_idx]];
+        //     // 计算描述子的距离  
+        //     std::pair<double, int> sc_dist_result = sc_.DistanceBtnScanContext(sc_desc, polarcontext_candidate); 
             
-            double candidate_dist = sc_dist_result.first;       // 距离   
-            int candidate_align = sc_dist_result.second;        // 平移量 
-            // 如果距离最小  
-            if( candidate_dist < min_dist ) {
-                min_dist = candidate_dist;
-                nn_align = candidate_align;
-                // 获取index  
-                nn_idx = candidate_indexes[candidate_iter_idx];
-            }
-        }
+        //     double candidate_dist = sc_dist_result.first;       // 距离   
+        //     int candidate_align = sc_dist_result.second;        // 平移量 
+        //     // 如果距离最小  
+        //     if( candidate_dist < min_dist ) {
+        //         min_dist = candidate_dist;
+        //         nn_align = candidate_align;
+        //         // 获取index  
+        //         nn_idx = candidate_indexes[candidate_iter_idx];
+        //     }
+        // }
         // t_calc_dist.toc("Distance calc");
         int64_t loop_idx = -1; 
         Eigen::Isometry3d relpose = Eigen::Isometry3d::Identity();   
-        /* 
-        * loop threshold check    即判断是否小于阈值  
-        */
-        if (min_dist < SC_DIST_THRES_) {
-            loop_idx = nn_idx; 
-            // std::std::cout.precision(3); 
-            std::cout << SlamLib::color::GREEN << "[Loop found] Nearest distance: " 
-                << min_dist << " match idx: " << nn_idx << std::endl;
-            std::cout << "[Loop found] yaw diff: " << nn_align * sc_.PC_UNIT_SECTORANGLE_ 
-                << " deg." << SlamLib::color::RESET << std::endl;
-        } else {
-            std::cout.precision(3); 
-            std::cout << "[Not loop] Nearest distance: " << min_dist << " match idx: " << nn_idx<< "." << std::endl;
-            std::cout << "[Not loop] yaw diff: " << nn_align * sc_.PC_UNIT_SECTORANGLE_ << " deg." 
-                << SlamLib::color::RESET << std::endl;
-            return std::pair<int64_t, Eigen::Isometry3d>(-1, relpose); 
-        }
-        // 转换为变换矩阵
-        float yaw_diff_rad = deg2rad(nn_align * sc_.PC_UNIT_SECTORANGLE_);      // yaw角的差
-        relpose.translation() = Eigen::Vector3d(0, 0, 0);
-        Eigen::Matrix3d rot;
-        rot = Eigen::AngleAxisd(-yaw_diff_rad, Eigen::Vector3d::UnitZ()) 
-                    * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) 
-                    * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitX());
-        relpose.linear() = rot;  
+        // /* 
+        // * loop threshold check    即判断是否小于阈值  
+        // */
+        // if (min_dist < SC_DIST_THRES_) {
+        //     loop_idx = nn_idx; 
+        //     // std::std::cout.precision(3); 
+        //     std::cout << SlamLib::color::GREEN << "[Loop found] Nearest distance: " 
+        //         << min_dist << " match idx: " << nn_idx << std::endl;
+        //     std::cout << "[Loop found] yaw diff: " << nn_align * sc_.PC_UNIT_SECTORANGLE_ 
+        //         << " deg." << SlamLib::color::RESET << std::endl;
+        // } else {
+        //     std::cout.precision(3); 
+        //     std::cout << "[Not loop] Nearest distance: " << min_dist << " match idx: " << nn_idx<< "." << std::endl;
+        //     std::cout << "[Not loop] yaw diff: " << nn_align * sc_.PC_UNIT_SECTORANGLE_ << " deg." 
+        //         << SlamLib::color::RESET << std::endl;
+        //     return std::pair<int64_t, Eigen::Isometry3d>(-1, relpose); 
+        // }
+        // // 转换为变换矩阵
+        // float yaw_diff_rad = deg2rad(nn_align * sc_.PC_UNIT_SECTORANGLE_);      // yaw角的差
+        // relpose.translation() = Eigen::Vector3d(0, 0, 0);
+        // Eigen::Matrix3d rot;
+        // rot = Eigen::AngleAxisd(-yaw_diff_rad, Eigen::Vector3d::UnitZ()) 
+        //             * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) 
+        //             * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitX());
+        // relpose.linear() = rot;  
         return std::make_pair(loop_idx, relpose);   
     }
 
@@ -368,5 +375,6 @@ private:
 
     std::vector<std::string> target_names_;   // 选择的点云表示名
     ScanContext<_PointCloudT> sc_;   
+    std::mutex mt_;  
 }; // class 
 } // namespace 
