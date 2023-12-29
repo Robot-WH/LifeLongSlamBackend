@@ -1221,9 +1221,7 @@ public:
   template <typename RESULTSET>
   bool findNeighbors(RESULTSET &result, const ElementType *vec,
                      const SearchParams &searchParams) const {
-    std::cout << "findNeighbors" << std::endl;
     assert(vec);
-    std::cout << "vec ok" << std::endl;
     if (this->size(*this) == 0)
       return false;
     if (!BaseClassRef::root_node)
@@ -1234,10 +1232,8 @@ public:
     distance_vector_t
         dists; // fixed or variable-sized container (depending on DIM)
     auto zero = static_cast<decltype(result.worstDist())>(0);
-    std::cout << "assign(dists, (DIM > 0 ? DIM : BaseClassRef::dim),zero);" << std::endl;
     assign(dists, (DIM > 0 ? DIM : BaseClassRef::dim),
            zero); // Fill it with zeros.
-    std::cout << "assign(dists, (DIM > 0 ? DIM : BaseClassRef::dim),zero);  OK" << std::endl;
     DistanceType distsq = this->computeInitialDistances(*this, vec, dists);
     searchLevel(result, vec, BaseClassRef::root_node, distsq, dists,
                 epsError); // "count_leaf" parameter removed since was neither

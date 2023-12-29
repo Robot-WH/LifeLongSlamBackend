@@ -131,7 +131,6 @@ public:
             last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
             curr_trajectory_id_ = loop_vertex.traj_;  
         } else {
-
         }
         // 通过kdtree 在同一条轨迹的历史结点中搜索若干个距离回环结点最接近的若干结点组成local map  
         pcl::PointXYZ loop_vertex_position; 
@@ -709,13 +708,13 @@ protected:
                 // 添加新增回环边
                 LoopEdge new_loop; 
                 new_loop.loop_traj_ = loop_vertex.traj_;  
-                new_loop.link_id_.first = loop_vertex.id_;
-                new_loop.link_id_.second = curr_keyframe_info.id_;
+                new_loop.link_id_.first = curr_keyframe_info.id_;
+                new_loop.link_id_.second = loop_vertex.id_;
                 new_loop.link_head_local_index_ = curr_keyframe_info.local_index_;   
-                new_loop.constraint_ = loop_vertex.pose_.inverse() * res.second;// T second -> first
+                new_loop.constraint_ = res.second.inverse() * loop_vertex.pose_;
                 new_loop.loop_vertex_pose_ = loop_vertex.pose_;
                 std::cout << "loop link_id_.first: " << new_loop.link_id_.first
-                    << ", link_id_.second: " << curr_keyframe_info.id_ << std::endl;
+                    << ", link_id_.second: " << loop_vertex.id_ << std::endl;
                 // Eigen::Matrix<double, 1, 6> noise;
                 // noise << 0.0025, 0.0025, 0.0025, 0.0001, 0.0001, 0.0001;
                 /**
@@ -747,7 +746,7 @@ private:
     std::mutex loop_mt_; 
     KeyFrame::Ptr curr_keyframe_; 
     double last_detect_time_ = 0;    
-    uint16_t curr_trajectory_id_ = 0;   
+    int32_t curr_trajectory_id_ = -1;   
     uint32_t last_detect_id_ = 0;  
     uint32_t last_keyframe_position_kdtree_size_ = 0;  
     pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr kdtreeHistoryKeyPoses;  // 历史关键帧的位姿kdtree 

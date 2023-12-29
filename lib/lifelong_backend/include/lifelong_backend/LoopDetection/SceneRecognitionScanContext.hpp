@@ -197,24 +197,23 @@ public:
         LOG(INFO) << SlamLib::color::GREEN << "load scan-context num " 
             << index << SlamLib::color::RESET;
         tt.toc("load time ");
+        if (polarcontext_ringkeys_vec_.empty())  return;  
         // 构建KDTREE
-        if (polarcontext_ringkeys_vec_.size() > NUM_EXCLUDE_RECENT_) {
-            tt.tic();  
-            polarcontext_ringkeys_to_search_.clear();
-                // 构造用于建立kdtree的历史ringkey集合     
-                // 这里减去 NUM_EXCLUDE_RECENT_ 也就是 不考虑最近的若干帧 
-                polarcontext_ringkeys_to_search_.assign( // [first，end)
-                    polarcontext_ringkeys_vec_.begin(), 
-                    polarcontext_ringkeys_vec_.end());  // end() 指向 最后一个元素的后一个
-                // KDTreeVectorOfVectorsAdaptor<>的 unique_ptr 
-                polarcontext_ringkey_tree_.reset(
-                    new ringKeyKdtree(sc_.GetRingNum() ,// ring的维度 例如20     
-                                                                polarcontext_ringkeys_to_search_, 
-                                                                // 最后结点的最大叶子数   即kdtree最后一个结点包含元素的最大个数
-                                                                10 )); 
-            tt.toc("build scan-context kdtree ");
-            LOG(INFO) << SlamLib::color::GREEN << "位置识别数据库加载完成!"<< SlamLib::color::RESET;
-        }
+        tt.tic();  
+        polarcontext_ringkeys_to_search_.clear();
+            // 构造用于建立kdtree的历史ringkey集合     
+            // 这里减去 NUM_EXCLUDE_RECENT_ 也就是 不考虑最近的若干帧 
+            polarcontext_ringkeys_to_search_.assign( // [first，end)
+                polarcontext_ringkeys_vec_.begin(), 
+                polarcontext_ringkeys_vec_.end());  // end() 指向 最后一个元素的后一个
+            // KDTreeVectorOfVectorsAdaptor<>的 unique_ptr 
+            polarcontext_ringkey_tree_.reset(
+                new ringKeyKdtree(sc_.GetRingNum() ,// ring的维度 例如20     
+                                                            polarcontext_ringkeys_to_search_, 
+                                                            // 最后结点的最大叶子数   即kdtree最后一个结点包含元素的最大个数
+                                                            10 )); 
+        tt.toc("build scan-context kdtree ");
+        LOG(INFO) << SlamLib::color::GREEN << "位置识别数据库加载完成!"<< SlamLib::color::RESET;
 
         return; 
     }
@@ -272,57 +271,56 @@ protected:
                                                                                                     &ring_key[0],  // 当前的描述子 
                                                                                                     nanoflann::SearchParams(10)); 
         // t_tree_search.toc("Tree search");
-        // /* 
-        // *  step 2: pairwise distance (find optimal columnwise best-fit using cosine distance)    
-        //             挑选最佳的候选关键帧   旋转检查
-        // */
-        // // SlamLib::time::TicToc t_calc_dist;   
-        // // 遍历所有候选关键帧       找到距离最近的index 与 旋转量   
-        // for (int candidate_iter_idx = 0; candidate_iter_idx < NUM_CANDIDATES_FROM_TREE_; candidate_iter_idx++ ) {   
-        //     std::cout << "candidate_indexes[candidate_iter_idx]: " << candidate_indexes[candidate_iter_idx] << std::endl;
-        //     // 获取候选关键帧 的sc描述子  
-        //     Eigen::MatrixXd polarcontext_candidate = polarcontexts_sc_[candidate_indexes[candidate_iter_idx]];
-        //     // 计算描述子的距离  
-        //     std::pair<double, int> sc_dist_result = sc_.DistanceBtnScanContext(sc_desc, polarcontext_candidate); 
+        /* 
+        *  step 2: pairwise distance (find optimal columnwise best-fit using cosine distance)    
+                    挑选最佳的候选关键帧   旋转检查
+        */
+        // SlamLib::time::TicToc t_calc_dist;   
+        // 遍历所有候选关键帧       找到距离最近的index 与 旋转量   
+        for (int candidate_iter_idx = 0; candidate_iter_idx < NUM_CANDIDATES_FROM_TREE_; candidate_iter_idx++ ) {   
+            // 获取候选关键帧 的sc描述子  
+            Eigen::MatrixXd polarcontext_candidate = polarcontexts_sc_[candidate_indexes[candidate_iter_idx]];
+            // 计算描述子的距离  
+            std::pair<double, int> sc_dist_result = sc_.DistanceBtnScanContext(sc_desc, polarcontext_candidate); 
             
-        //     double candidate_dist = sc_dist_result.first;       // 距离   
-        //     int candidate_align = sc_dist_result.second;        // 平移量 
-        //     // 如果距离最小  
-        //     if( candidate_dist < min_dist ) {
-        //         min_dist = candidate_dist;
-        //         nn_align = candidate_align;
-        //         // 获取index  
-        //         nn_idx = candidate_indexes[candidate_iter_idx];
-        //     }
-        // }
+            double candidate_dist = sc_dist_result.first;       // 距离   
+            int candidate_align = sc_dist_result.second;        // 平移量 
+            // 如果距离最小  
+            if( candidate_dist < min_dist ) {
+                min_dist = candidate_dist;
+                nn_align = candidate_align;
+                // 获取index  
+                nn_idx = candidate_indexes[candidate_iter_idx];
+            }
+        }
         // t_calc_dist.toc("Distance calc");
         int64_t loop_idx = -1; 
         Eigen::Isometry3d relpose = Eigen::Isometry3d::Identity();   
-        // /* 
-        // * loop threshold check    即判断是否小于阈值  
-        // */
-        // if (min_dist < SC_DIST_THRES_) {
-        //     loop_idx = nn_idx; 
-        //     // std::std::cout.precision(3); 
-        //     std::cout << SlamLib::color::GREEN << "[Loop found] Nearest distance: " 
-        //         << min_dist << " match idx: " << nn_idx << std::endl;
-        //     std::cout << "[Loop found] yaw diff: " << nn_align * sc_.PC_UNIT_SECTORANGLE_ 
-        //         << " deg." << SlamLib::color::RESET << std::endl;
-        // } else {
-        //     std::cout.precision(3); 
-        //     std::cout << "[Not loop] Nearest distance: " << min_dist << " match idx: " << nn_idx<< "." << std::endl;
-        //     std::cout << "[Not loop] yaw diff: " << nn_align * sc_.PC_UNIT_SECTORANGLE_ << " deg." 
-        //         << SlamLib::color::RESET << std::endl;
-        //     return std::pair<int64_t, Eigen::Isometry3d>(-1, relpose); 
-        // }
-        // // 转换为变换矩阵
-        // float yaw_diff_rad = deg2rad(nn_align * sc_.PC_UNIT_SECTORANGLE_);      // yaw角的差
-        // relpose.translation() = Eigen::Vector3d(0, 0, 0);
-        // Eigen::Matrix3d rot;
-        // rot = Eigen::AngleAxisd(-yaw_diff_rad, Eigen::Vector3d::UnitZ()) 
-        //             * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) 
-        //             * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitX());
-        // relpose.linear() = rot;  
+        /* 
+        * loop threshold check    即判断是否小于阈值  
+        */
+        if (min_dist < SC_DIST_THRES_) {
+            loop_idx = nn_idx; 
+            // std::std::cout.precision(3); 
+            std::cout << SlamLib::color::GREEN << "[Loop found] Nearest distance: " 
+                << min_dist << " match idx: " << nn_idx << std::endl;
+            std::cout << "[Loop found] yaw diff: " << nn_align * sc_.PC_UNIT_SECTORANGLE_ 
+                << " deg." << SlamLib::color::RESET << std::endl;
+        } else {
+            std::cout.precision(3); 
+            std::cout << "[Not loop] Nearest distance: " << min_dist << " match idx: " << nn_idx<< "." << std::endl;
+            std::cout << "[Not loop] yaw diff: " << nn_align * sc_.PC_UNIT_SECTORANGLE_ << " deg." 
+                << SlamLib::color::RESET << std::endl;
+            return std::pair<int64_t, Eigen::Isometry3d>(-1, relpose); 
+        }
+        // 转换为变换矩阵
+        float yaw_diff_rad = deg2rad(nn_align * sc_.PC_UNIT_SECTORANGLE_);      // yaw角的差
+        relpose.translation() = Eigen::Vector3d(0, 0, 0);
+        Eigen::Matrix3d rot;
+        rot = Eigen::AngleAxisd(-yaw_diff_rad, Eigen::Vector3d::UnitZ()) 
+                    * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitY()) 
+                    * Eigen::AngleAxisd(0, Eigen::Vector3d::UnitX());
+        relpose.linear() = rot;  
         return std::make_pair(loop_idx, relpose);   
     }
 
