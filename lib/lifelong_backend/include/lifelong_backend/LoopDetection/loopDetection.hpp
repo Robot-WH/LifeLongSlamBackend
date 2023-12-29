@@ -496,6 +496,7 @@ protected:
                             PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud(loop_vertex.traj_);  
                         kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
                         last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
+                        std::cout << "last_keyframe_position_kdtree_size_: " << last_keyframe_position_kdtree_size_ << std::endl;
                         curr_trajectory_id_ = loop_vertex.traj_;  
                     } else {
                         pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
@@ -506,7 +507,7 @@ protected:
                             if (last_keyframe_position_cloud == nullptr) {
                                 last_keyframe_position_cloud = keyframe_position_cloud;
                                 last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();  
-                                continue;  
+                                continue; 
                             }
                             // SlamLib::time::TicToc tt;
                             std::cout << SlamLib::color::GREEN << "updata loop kdtree! size: " 
@@ -684,7 +685,7 @@ protected:
                     OVERLAP_THRESH_); 
                 std::cout << SlamLib::color::GREEN << "loop refine match converged, score: " 
                     << eva.first << std::endl;
-                
+
                 Eigen::Isometry3d origin_T = res.second;  
 
                 if (eva.first > MIN_SCORE_) {
@@ -740,7 +741,6 @@ private:
     double SCORE_THRESH_ = 0;
     double OVERLAP_THRESH_ = 0;
     double MIN_SCORE_ = 0;
-
 
     std::mutex processed_queue_mt_;  
     std::mutex loop_mt_; 

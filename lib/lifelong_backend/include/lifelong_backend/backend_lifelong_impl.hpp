@@ -504,8 +504,8 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
     if (this->new_keyframe_queue_.empty()) {
         return false;
     }
-        std::cout << "trajectory: " << trajectory_ << ", size: " << 
-        PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_).size() << std::endl;
+    // std::cout << "trajectory: " << trajectory_ << ", size: " << 
+    // PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_).size() << std::endl;
     // 处理的数量  
     int num_processed = std::min<int>(this->new_keyframe_queue_.size(), 
                                                                                 max_keyframes_per_update_);
@@ -515,8 +515,6 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
         // 从keyframe_queue中取出关键帧
         KeyFrame& keyframe = this->new_keyframe_queue_[i];
         FeaturePointCloudContainer& points = this->new_keyframe_points_queue_[i];  
-        // keyframe.id_ = id_;
-        // ++id_;   
         Eigen::Isometry3d corrected_pose = this->trans_odom2map_ * keyframe.odom_; 
         //  添加到数据库中       返回添加到数据库中的 id 和 local_index  
         std::pair<uint32_t, uint32_t> id_localIndex = 
@@ -621,18 +619,17 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
         for (uint16_t i = 0; i < new_loops.size(); i++) {
             // 与不同的轨迹发生了回环，较晚的轨迹与较早的轨迹对齐 
             if (new_loops[i].loop_traj_ != trajectory_) {
-                std::cout << "跨轨迹回环，merge..." << std::endl;
+                // std::cout << "跨轨迹回环，merge..." << std::endl;
                 // 提取出回环trajectory的全部节点  
                 std::vector<Vertex>& loop_trajectory_vertexs = database.GetTrajectoryVertex(new_loops[i].loop_traj_);  
                 Eigen::Isometry3d correct = Eigen::Isometry3d::Identity();
+                Vertex curr_vertex = database.GetVertexByTrajectoryLocalIndex(trajectory_, new_loops[i].link_head_local_index_);  
                 // std::cout << "loop_trajectory_vertexs size: " << loop_trajectory_vertexs.size() << std::endl;
                 // 较早的轨迹作为基准，即与较早的估计进行对齐  
                 if (new_loops[i].loop_traj_ < trajectory_) {
                     // 当前建图的轨迹与历史回环轨迹对齐(当前轨迹的节点转换到回环轨迹的参考坐标系上)
-                    Vertex curr_vertex = database.GetVertexByTrajectoryLocalIndex(trajectory_, new_loops[i].link_head_local_index_);  
-                    std::cout << "curr_vertex, id: " << curr_vertex.id_ << std::endl;
-                    Eigen::Isometry3d correct = 
-                        (new_loops[i].loop_vertex_pose_ * new_loops[i].constraint_) * curr_vertex.pose_.inverse();
+                    // std::cout << "curr_vertex, id: " << curr_vertex.id_ << std::endl;
+                    correct = (new_loops[i].loop_vertex_pose_ * new_loops[i].constraint_.inverse()) * curr_vertex.pose_.inverse();
                     // 需要对当前轨迹的数据转换到回环轨迹的坐标系上 
                     auto& curr_traj_vertex = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_);
                     // std::cout << "curr_traj_vertex size: " << curr_traj_vertex.size() << std::endl;
@@ -643,6 +640,8 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                         optimizer_->SetNodePose(vertex.id_, vertex.pose_); 
                     }
                 } else {
+                    // 回环的轨迹与当前轨迹对齐
+                    correct = (curr_vertex.pose_ * new_loops[i].constraint_) * new_loops[i].loop_vertex_pose_.inverse();
                 }
                 // 将回环的vertex 添加
                 for (auto& vertex : loop_trajectory_vertexs) {
@@ -662,13 +661,18 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                                                         edge.constraint_, edge.noise_);  
                 }
                 // 合并
-                PoseGraphDataBase::GetInstance().MergeTrajectory(new_loops[i].loop_traj_, trajectory_); 
-                trajectory_ = new_loops[i].loop_traj_;
+                if (new_loops[i].loop_traj_ < trajectory_) {
+                    PoseGraphDataBase::GetInstance().MergeTrajectory(new_loops[i].loop_traj_, trajectory_); 
+                    trajectory_ = new_loops[i].loop_traj_;
+                } else {
+                    PoseGraphDataBase::GetInstance().MergeTrajectory(trajectory_, new_loops[i].loop_traj_); 
+                }
             } else {
-                std::cout << "new_loops[i].loop_traj_: " << new_loops[i].loop_traj_ 
-                        << ",trajectory_: " << trajectory_ << std::endl;
+            //     std::cout << "new_loops[i].loop_traj_: " << new_loops[i].loop_traj_ 
+            //             << ",trajectory_: " << trajectory_ << std::endl;
+            // }
             }
-            std::cout << "loop head: " << new_loops[i].link_id_.first << ", tail: " << new_loops[i].link_id_.second << std::endl;
+            // std::cout << "loop head: " << new_loops[i].link_id_.first << ", tail: " << new_loops[i].link_id_.second << std::endl;
             optimizer_->AddSe3Edge(new_loops[i].link_id_.first, new_loops[i].link_id_.second, 
                                                                     new_loops[i].constraint_, new_loops[i].noise_);  
             // 回环数据记录到数据库中
