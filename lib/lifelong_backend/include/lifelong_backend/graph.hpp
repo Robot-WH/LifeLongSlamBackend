@@ -74,7 +74,6 @@ struct Edge {
         ofs << "id " << id_ << "\n";
         ofs << "link_head " << link_id_.first << "\n";
         ofs << "link_tail " << link_id_.second << "\n";
-        ofs << "link_head_local_index " << link_head_local_index_ << "\n";  
         ofs << "constraint\n";
         ofs << constraint_.matrix()<<"\n";
         ofs << "noise\n";

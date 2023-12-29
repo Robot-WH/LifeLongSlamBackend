@@ -134,6 +134,7 @@ public:
      */
     bool LoadPoseGraph(uint16_t traj) {
         uint64_t index = 0; 
+        std::vector<uint32_t> vertex_localIndex(info_.keyframe_cnt, 0);
         // 遍历磁盘全部vertex数据，将属于traj轨迹的加载进来  
         while(index < info_.keyframe_cnt) {
             Vertex vertex;  
@@ -169,6 +170,7 @@ public:
             }
 
             database_vertex_info_.emplace_back(vertex.traj_, traj_vertex_map_[vertex.traj_].size()); 
+            vertex_localIndex[vertex.id_] = traj_vertex_map_[vertex.traj_].size();  
             traj_vertex_map_[vertex.traj_].push_back(vertex); 
             
             traj_vertexDatabaseIndex_map_[vertex.traj_].push_back(vertex_database_.size());  
@@ -219,8 +221,6 @@ public:
                 } else if (token == "link_tail") {
                     ifs >> edge.link_id_.second; 
                     //std::cout<<"link_tail: "<<edge.link_id_.second<<std::endl;
-                } else if (token == "link_head_local_index") {
-                    ifs >> edge.link_head_local_index_; 
                 } else if (token == "constraint") {
                     Eigen::Matrix4d matrix; 
 
@@ -241,6 +241,7 @@ public:
                 }
             }
 
+            edge.link_head_local_index_ = vertex_localIndex[edge.link_id_.first]; 
             traj_edge_map_[edge.traj_].push_back(edge); 
 
             if (edge.traj_ != traj) {
