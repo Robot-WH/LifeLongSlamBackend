@@ -644,13 +644,15 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                     correct = (curr_vertex.pose_ * new_loops[i].constraint_) * new_loops[i].loop_vertex_pose_.inverse();
                 }
                 // 将回环的vertex 添加
-                for (auto& vertex : loop_trajectory_vertexs) {
+                for (uint32_t n = 0; n < loop_trajectory_vertexs.size(); n++) {
                     if (new_loops[i].loop_traj_ > trajectory_) {
                         // 回环轨迹转换到当前轨迹坐标系上 
-                        vertex.pose_ = correct * vertex.pose_;
-                        vertex.traj_ = trajectory_;  
+                        loop_trajectory_vertexs[n].pose_ = correct * loop_trajectory_vertexs[n].pose_;
+                        loop_trajectory_vertexs[n].traj_ = trajectory_;  
+                        // 更新位姿点云
+                        PoseGraphDataBase::GetInstance().UpdataKeyframePointcloud(new_loops[i].loop_traj_, n, loop_trajectory_vertexs[n].pose_);
                     } 
-                    optimizer_->AddSe3Node(vertex.pose_, vertex.id_); 
+                    optimizer_->AddSe3Node(loop_trajectory_vertexs[n].pose_, loop_trajectory_vertexs[n].id_); 
                 }
                 // 从数据库磁盘中加载对应轨迹的边  
                 const std::vector<Edge>& loop_trajectory_edges = 

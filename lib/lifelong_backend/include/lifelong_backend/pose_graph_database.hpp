@@ -139,10 +139,12 @@ public:
         while(index < info_.keyframe_cnt) {
             Vertex vertex;  
             std::ifstream ifs(database_save_path_ + "/Vertex/id_" + std::to_string(index));
+
             if(!ifs) {
                 index++;  
                 continue;
             }
+
             index++;  
             // 读取该结点的信息
             while(!ifs.eof()) {
@@ -254,6 +256,11 @@ public:
         return true; 
     }
 
+    /**
+     * @brief Create a New Session object
+     * 
+     * @return uint16_t 
+     */
     uint16_t CreateNewSession() {
         ++info_.session_cnt;
         traj_vertex_map_[info_.session_cnt].reserve(1000);
@@ -364,8 +371,6 @@ public:
         if (traj_keyframePositionCloud_.find(traj) == traj_keyframePositionCloud_.end()) {
             traj_keyframePositionCloud_[traj] = 
                 pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>);
-            traj_keyframeRotCloud_[traj] = 
-                pcl::PointCloud<pcl::PointXYZI>::Ptr(new pcl::PointCloud<pcl::PointXYZI>);
         }
         pose_cloud_mt_.lock();  
         //  将位置数据保存到位置点云
@@ -374,14 +379,6 @@ public:
         Position3D.y = pose.translation().y();
         Position3D.z = pose.translation().z();
         traj_keyframePositionCloud_[traj]->push_back(Position3D);
-        // 保存姿态数据到位姿点云
-        pcl::PointXYZI Rot3D; 
-        Eigen::Quaterniond q(pose.rotation());
-        Rot3D.x = q.x();
-        Rot3D.y = q.y();
-        Rot3D.z = q.z();
-        Rot3D.intensity = q.w();  
-        traj_keyframeRotCloud_[traj]->push_back(Rot3D);
         pose_cloud_mt_.unlock();  
     }
 
@@ -952,14 +949,27 @@ public:
                                                                                 traj_edge_map_[target_traj].end());
         // 合并位姿点云     
         *traj_keyframePositionCloud_[source_traj] += *traj_keyframePositionCloud_[target_traj];
-        *traj_keyframeRotCloud_[source_traj] += *traj_keyframeRotCloud_[target_traj];
         // 删除target
         traj_vertex_map_.erase(target_traj); 
         traj_edge_map_.erase(target_traj); 
-        traj_keyframeRotCloud_.erase(target_traj);
         traj_keyframePositionCloud_.erase(target_traj);
     }
 
+    /**
+     * @brief 
+     * 
+     * @param traj 
+     * @param index 
+     * @param pose 
+     */
+    void UpdataKeyframePointcloud(const uint16_t& traj, const uint32_t& index, const Eigen::Isometry3d& pose) {
+        auto& keyframePositionCloud = traj_keyframePositionCloud_.at(traj);
+        (*keyframePositionCloud)[index].x = pose.translation().x();
+        (*keyframePositionCloud)[index].y = pose.translation().y();
+        (*keyframePositionCloud)[index].z = pose.translation().z();
+    }
+
+    
     /**
      * @brief 
      * 
@@ -1018,7 +1028,6 @@ private:
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudKeyFramePosition3D_;  // 历史关键帧位置
     pcl::PointCloud<pcl::PointXYZI>::Ptr cloudKeyFrameRot3D_; // 历史关键帧姿态   四元数形式  
     std::unordered_map<uint16_t, pcl::PointCloud<pcl::PointXYZ>::Ptr> traj_keyframePositionCloud_;
-    std::unordered_map<uint16_t, pcl::PointCloud<pcl::PointXYZI>::Ptr> traj_keyframeRotCloud_;
 
     /**
      * @todo  没什么用  准备删除 

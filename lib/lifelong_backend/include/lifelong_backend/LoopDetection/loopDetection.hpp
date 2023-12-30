@@ -19,7 +19,7 @@
 #include "../Common/keyframe.hpp"
 #include "SceneRecognitionScanContext.hpp"
 namespace lifelong_backend {
-#define LOOP_DEBUG 0
+#define LOOP_DEBUG 1
 struct LoopDetectionOption {
     double score_thresh;
     double overlap_thresh;
