@@ -10,7 +10,40 @@
 #pragma once
 #include <Eigen/Dense>
 #include <boost/filesystem.hpp>
+#include "graph.pb.h"
 namespace lifelong_backend {
+
+static lifelong_backend::transform::proto::Vector3d ToProto(const Eigen::Vector3d& vector) {
+    lifelong_backend::transform::proto::Vector3d v;
+    v.set_x(vector.x());
+    v.set_y(vector.y());
+    v.set_z(vector.z());
+    return v;
+}
+
+static lifelong_backend::transform::proto::Quaterniond ToProto(const Eigen::Quaterniond& q) {
+    lifelong_backend::transform::proto::Quaterniond proto_q;
+    proto_q.set_x(q.x());
+    proto_q.set_y(q.y());
+    proto_q.set_z(q.z());
+    proto_q.set_w(q.w());
+    return proto_q;
+}
+
+static Eigen::Vector3d ProtoTo(const lifelong_backend::transform::proto::Vector3d& proto_vector) {
+    return Eigen::Vector3d(proto_vector.x(), proto_vector.y(), proto_vector.z());
+}
+
+static Eigen::Quaterniond ProtoTo(const lifelong_backend::transform::proto::Quaterniond& proto_q) {
+    return Eigen::Quaterniond(proto_q.w(), proto_q.x(), proto_q.y(), proto_q.z());
+}
+
+static Eigen::Isometry3d ProtoTo(const lifelong_backend::transform::proto::Transform3d& transform) {
+    Eigen::Isometry3d T;
+    T.translation() = ProtoTo(transform.translation());
+    T.linear() = ProtoTo(transform.rotation()).toRotationMatrix();
+    return T;
+}
 
 /**
  * @brief: pose-graph 顶点
@@ -31,20 +64,71 @@ struct Vertex {
      */
     void Save(std::string const& path) {
         if (!boost::filesystem::is_directory(path)) {
+            std::cout << "Save, path: " << path << std::endl;
             boost::filesystem::create_directory(path);
         }
 
-        std::ofstream ofs(path + "/Vertex/id_" + std::to_string(id_));
-        ofs << "traj " << traj_ << "\n";  
-        ofs << "id " << id_ << "\n";
-        ofs << "pose\n";
-        ofs << pose_.matrix() <<"\n";
+        // std::ofstream ofs(path + "/Vertex/id_" + std::to_string(id_));
+        // ofs << "traj " << traj_ << "\n";  
+        // ofs << "id " << id_ << "\n";
+        // ofs << "pose\n";
+        // ofs << pose_.matrix() <<"\n";
+
+        std::fstream ofs(path + "/Vertex/id_" + std::to_string(id_), 
+            std::ios::out | std::ios::trunc | std::ios::binary);
+
+        lifelong_backend::graph::proto::Vertex vertex;
+        vertex.set_traj(traj_);
+        vertex.set_id(id_);
+        lifelong_backend::transform::proto::Transform3d* pose(new lifelong_backend::transform::proto::Transform3d);
+        lifelong_backend::transform::proto::Vector3d* translation(new lifelong_backend::transform::proto::Vector3d);
+        lifelong_backend::transform::proto::Quaterniond* Quaterniond(new lifelong_backend::transform::proto::Quaterniond);
+        *translation = ToProto(pose_.translation());
+        *Quaterniond = ToProto(Eigen::Quaterniond(pose_.rotation()));
+        pose->set_allocated_translation(translation);
+        pose->set_allocated_rotation(Quaterniond);
+        vertex.set_allocated_pose(pose);
+
+        if (!vertex.SerializeToOstream(&ofs)) {
+            // cerr << "Failed to write vertex." << endl;
+            return;
+        }
+    }
+
+    /**
+     * @brief 
+     * 
+     * @param path 
+     * @return true 
+     * @return false 
+     */
+    bool Load(const std::string& path) {
+        // std::ifstream ifs(path);
+        std::fstream ifs(path, std::ios::in | std::ios::binary);
+
+        if(!ifs) {
+            return false;
+        }
+
+        lifelong_backend::graph::proto::Vertex vertex;
+
+        if (!vertex.ParseFromIstream(&ifs)) {
+            // cerr << "Failed to parse address book." << endl;
+            return false;
+        }
+
+        traj_ = vertex.traj();
+        id_ = vertex.id();
+        pose_ = ProtoTo(vertex.pose()); 
+        return true;  
     }
 
     uint16_t traj_;     // 轨迹id    支持 multi - session
     uint64_t id_;      // 全局id
     Eigen::Isometry3d pose_;
 }; 
+
+
 
 /**
  * @brief: pose-graph 边

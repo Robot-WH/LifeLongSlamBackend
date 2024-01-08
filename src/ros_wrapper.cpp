@@ -12,6 +12,7 @@
 #include "lwio/keyframe_info.h"
 #include <deque>
 #include <mutex>
+#include <dirent.h>
 
 using PointT = pcl::PointXYZI;
 using PointCloudConstPtr = pcl::PointCloud<PointT>::ConstPtr;  
@@ -19,12 +20,12 @@ using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
 using PointCloud = pcl::PointCloud<PointT>;  
 // using UsedPointT = PointXYZIRDTC;
 
-string config_path;     // 算法参数文件path                                                                                        
+string config_path;     // 算法参数文件path  
+string database_path;                                                                                      
 string public_topic = "undistortion_pointcloud";
 std::string odom_frame = "odom";
 
 std::mutex m_estimate;
-
 std::unique_ptr<lifelong_backend::LifeLongBackEndOptimization<PointT>> backend_;  
 
 ros::Publisher pubUndistortPoints;  
@@ -37,9 +38,15 @@ std::vector<ros::Publisher> pubLocalMapSurf;    // 发布每个激光提取的�
 ros::Publisher markers_pub; // 可视化
 ros::Publisher odom_to_map_pub;   
 ros::Publisher localizeMap_pub;  
+ros::Publisher workspace_pub;  
 ros::ServiceServer save_data_server;   // 数据保存服务
 ros::ServiceServer save_map_server;  // 地图保存服务 
+ros::ServiceServer set_space_server;  // 设置空间服务 
+ros::ServiceServer save_traj_server; // 保存轨迹服务 
+ros::ServiceServer set_traj_server; // 设置轨迹服务 
+
 ros::Subscriber keyframe_sub; 
+ros::Subscriber getWorkSpace_sub; 
 // 发布话题名称  
 std::vector<std::string> pubLidarFiltered_topic = { "filtered_lidar_0", "filtered_lidar_1"};
 std::vector<std::string> pubLidarEdge_topic = { "lidar_edge_0", "lidar_edge_1"};
@@ -48,20 +55,26 @@ std::vector<std::string> pubLocalMapFiltered_topic = { "LocalMap_filtered_0", "L
 std::vector<std::string> pubLocalMapEdge_topic = { "LocalMap_edge_0", "LocalMap_edge_1"};
 std::vector<std::string> pubLocalMapSurf_topic = { "LocalMap_surf_0", "LocalMap_surf_1"};
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void InitSystem(ros::NodeHandle &n) {
-    // 算法配置文件路径
+void InitSystem(ros::NodeHandle& n) {
+    // 算法配置数据库路径
     config_path = RosReadParam<string>(n, "config_path");  
     backend_.reset(new lifelong_backend::LifeLongBackEndOptimization<PointT>(config_path));
+    database_path = RosReadParam<string>(n, "database_path");  
 }
 
 bool SaveDataService(lifelong_backend::SaveDataRequest& req, lifelong_backend::SaveDataResponse& res);
 bool SaveMapService(lifelong_backend::SaveMapRequest& req, lifelong_backend::SaveMapResponse& res);
+bool SetSpaceService(lifelong_backend::SetSpaceRequest& req, lifelong_backend::SetSpaceResponse& res);
+bool SaveTrajService(lifelong_backend::SaveTrajRequest& req, lifelong_backend::SaveTrajResponse& res);
+bool SetTrajService(lifelong_backend::SetTrajRequest& req, lifelong_backend::SetTrajResponse& res);
+
 void pubMarkers(const lifelong_backend::KeyFrameInfo<PointT>& info);
 void keyframeCallback(const lwio::keyframe_info& info);
+void getWorkSpaceCallback(const std_msgs::Bool& flag);
 void pubOdomToMap(const Eigen::Isometry3d& odom_to_map);
 void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map);  
 
-void InitComm(ros::NodeHandle &private_nh) {
+void InitComm(ros::NodeHandle& private_nh, ros::NodeHandle& nh) {
     // for (uint16_t i = 0; i < NUM_OF_LIDAR; i++)
     // {
     //     ros::Publisher pub = private_nh.advertise<sensor_msgs::PointCloud2>(pubLidarFiltered_topic[i], 10); 
@@ -81,9 +94,15 @@ void InitComm(ros::NodeHandle &private_nh) {
     markers_pub = private_nh.advertise<visualization_msgs::MarkerArray>("/graph_markers", 10);        // 可视化
     odom_to_map_pub = private_nh.advertise<nav_msgs::Odometry>("/odom_to_map", 10);   
     localizeMap_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/localize_map", 10);   
+    workspace_pub = nh.advertise<lifelong_backend::workspace_info>("/workspace", 10);   
     save_data_server = private_nh.advertiseService("/SaveData", &SaveDataService);
     save_map_server = private_nh.advertiseService("/SaveMap", &SaveMapService);
+    set_space_server = private_nh.advertiseService("/SetSpace", &SetSpaceService);
+    save_traj_server = private_nh.advertiseService("/SaveTraj", &SaveTrajService);
+    set_traj_server = private_nh.advertiseService("/SetTraj", &SetTrajService);
     keyframe_sub = private_nh.subscribe("/keyframe_info", 1000, &keyframeCallback,
+        ros::TransportHints().tcpNoDelay());
+    getWorkSpace_sub = private_nh.subscribe("/getWorkSpace", 10, &getWorkSpaceCallback,
         ros::TransportHints().tcpNoDelay());
     // 进程内通信
     IPC::Server::Instance().Subscribe("keyframes_info", &pubMarkers);  
@@ -111,8 +130,54 @@ bool SaveMapService(lifelong_backend::SaveMapRequest& req, lifelong_backend::Sav
     return res.success;  
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+bool SetSpaceService(lifelong_backend::SetSpaceRequest& req, lifelong_backend::SetSpaceResponse& res) {
+    // 加载space    返回内部轨迹的数量
+    res.traj_id = backend_->Load(database_path + req.space_name);
+    return true;  
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+bool SaveTrajService(lifelong_backend::SaveTrajRequest& req, lifelong_backend::SaveTrajResponse& res) {
+    backend_->SavePoseGraph();  
+    res.traj_id = lifelong_backend::PoseGraphDataBase::GetInstance().GetTrajectoryIDList();  
+    return true;  
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+bool SetTrajService(lifelong_backend::SetTrajRequest& req, lifelong_backend::SetTrajResponse& res) {
+    res.success = backend_->SetTrajectory(req.traj_id); 
+    return true;  
+}
 
 Eigen::Isometry3d trans_odom2map = Eigen::Isometry3d::Identity();
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void getWorkSpaceCallback(const std_msgs::Bool& flag) {
+    // 读取数据库内所有地图空间的名字  并发送信息
+    DIR* dir_p = nullptr;
+    struct dirent* dir_entry = nullptr;
+    
+    if ((dir_p = opendir(database_path.data())) == nullptr) {
+        std::cout << "dataset_path error" << std::endl;
+        return; 
+    }
+
+    std::vector<std::string> workspace; 
+
+    while ((dir_entry = readdir(dir_p)) != nullptr) {
+        // 排除隐藏文件
+        if (dir_entry->d_name[0] != '.') {
+            workspace.push_back(dir_entry->d_name);
+        }
+    }
+
+    lifelong_backend::workspace_info info;
+    info.space_name = workspace;
+    workspace_pub.publish(info);  
+
+    closedir(dir_p);
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void keyframeCallback(const lwio::keyframe_info& info) {
@@ -365,7 +430,7 @@ int main(int argc, char **argv) {
     ros::init(argc, argv, "lifelong_backend node");
     ros::NodeHandle nh;
     ros::NodeHandle private_nh("~");
-    InitComm(private_nh);  
+    InitComm(private_nh, nh);  
     InitSystem(nh);  
     // std::thread processResult_thread(processResult);
     ros::spin();

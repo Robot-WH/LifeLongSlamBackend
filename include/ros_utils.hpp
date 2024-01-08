@@ -1,7 +1,5 @@
-
 #ifndef _ROS_UTILS_HPP
 #define _ROS_UTILS_HPP
-
 #include <ros/ros.h>
 
 #include <tf/LinearMath/Quaternion.h>
@@ -9,6 +7,8 @@
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
 
+#include <std_msgs/Bool.h>
+#include <std_msgs/String.h>
 #include <std_msgs/Header.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <sensor_msgs/Imu.h>
@@ -23,6 +23,11 @@
 #include <message_filters/subscriber.h>
 #include <lifelong_backend/SaveData.h>
 #include <lifelong_backend/SaveMap.h>
+#include <lifelong_backend/SetSpace.h>
+#include <lifelong_backend/SaveTraj.h>
+#include <lifelong_backend/SetTraj.h>
+#include <lifelong_backend/control_info.h>
+#include <lifelong_backend/workspace_info.h>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>

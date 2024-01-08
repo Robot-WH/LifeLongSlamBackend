@@ -23,16 +23,22 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(PCL 1.7 REQUIRED)
 find_package(Eigen3  REQUIRED)
 
-
 add_message_files(
   DIRECTORY msg
   FILES
   # keyframe_info.msg
+  control_info.msg
+  trajectory_info.msg
+  workspace_info.msg
+  space_info.msg
 )
 
 add_service_files(FILES
   SaveMap.srv
   SaveData.srv
+  SetSpace.srv
+  SaveTraj.srv
+  SetTraj.srv
 )
 
 generate_messages(
@@ -44,6 +50,7 @@ generate_messages(
 #   geographic_msgs
 #   nmea_msgs
   # keyframe_info
+  # control_info
 )
 
 catkin_package(

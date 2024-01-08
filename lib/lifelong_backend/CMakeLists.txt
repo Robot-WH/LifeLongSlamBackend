@@ -16,6 +16,15 @@ find_package(Eigen3  REQUIRED)
 find_package(OpenCV 3.0 QUIET)
 find_package(GTSAM REQUIRED)
 find_package(glog  REQUIRED)
+find_package(Protobuf REQUIRED)
+
+FILE(GLOB PROTO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/proto/*.proto")
+# PROTOBUF_GENERATE_CPP(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
+
+# PROTO_SRCS = /home/lwh/code/graph_3d_slam/build/LifelongBackend/lib/lifelong_backend/graph.pb.cc;/home/lwh/code/graph_3d_slam/build/LifelongBackend/lib/lifelong_backend/transform.pb.cc
+# PROTO_HDRS = /home/lwh/code/graph_3d_slam/build/LifelongBackend/lib/lifelong_backend/graph.pb.h;/home/lwh/code/graph_3d_slam/build/LifelongBackend/lib/lifelong_backend/transform.pb.h
+# message("PROTO_SRCS = ${PROTO_SRCS}")
+# message("PROTO_HDRS = ${PROTO_HDRS}")
 
 include_directories(
     include 
@@ -25,7 +34,22 @@ include_directories(
     ${PCL_INCLUDE_DIRS}
     ${G2O_INCLUDE_DIRS}
     ${SlamLib_INCLUDE_DIR}
+    # ${PROTO_HDRS}
 )
+# 为什么不加入PIC控制就会报错？？
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)  
+
+add_library(lifelong_backend_proto STATIC 
+    proto/transform.pb.cc
+    proto/graph.pb.cc
+)
+target_link_libraries(lifelong_backend_proto ${Protobuf_LIBRARIES}) 
+target_include_directories(lifelong_backend_proto PUBLIC 
+    proto
+    ${PROTOBUF_INCLUDE_DIRS}
+)
+
+set(CMAKE_POSITION_INDEPENDENT_CODE OFF)  
 
 
 add_library(lifelong_backend SHARED
@@ -46,4 +70,5 @@ target_link_libraries(lifelong_backend PUBLIC
     slam_pointcloud
     gtsam
     yaml-cpp
+    lifelong_backend_proto
 )

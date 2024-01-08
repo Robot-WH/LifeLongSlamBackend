@@ -42,9 +42,10 @@ public:
      */            
     virtual void AddKeyFrame(SlamLib::CloudContainer<_FeatureT> const& lidar_data, 
                                                                 Eigen::Isometry3d const& odom) = 0; 
-    virtual void Load() = 0; 
+    virtual std::vector<uint16_t> Load(std::string space_path) = 0; 
     virtual void SaveGlobalMap(float resolution, std::string save_path) = 0;  
     virtual void SavePoseGraph() = 0;  
+    virtual bool SetTrajectory(uint16_t traj_id) {};  
     virtual void ForceGlobalOptimaze() = 0; 
 protected:
     virtual void mapping() = 0;     // 处理线程

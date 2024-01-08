@@ -50,7 +50,7 @@ public:
     /**
      * @brief: 外界调用的数据库载入接口 
      */            
-    void Load() override;
+    std::vector<uint16_t> Load(std::string space_path) override;
 
     /**
      * @brief 
@@ -65,6 +65,8 @@ public:
      * 
      */
     void SavePoseGraph() override;  
+
+    bool SetTrajectory(uint16_t traj_id) override;
 
     /**
      * @brief: 添加激光里程计关键帧

@@ -1,0 +1,2 @@
+string space_name
+uint16 traj_cnt

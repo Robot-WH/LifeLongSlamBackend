@@ -265,6 +265,7 @@ public:
      * @param path 
      */
     void Save(std::string const& path) {
+        // std::cout << "loop Save: " << path << std::endl;
         scene_recognizer_.Save(path); 
     }
 

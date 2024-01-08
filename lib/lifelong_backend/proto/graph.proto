@@ -1,0 +1,18 @@
+syntax = "proto3";
+package lifelong_backend.graph.proto;
+import "transform.proto";
+
+message Vertex {
+    uint32 traj = 1;
+    uint32 id = 2;
+    transform.proto.Transform3d pose = 3;
+}
+
+message Edge {
+    uint32 traj = 1;
+    uint32 id = 2;
+    uint32 link_head = 3;
+    uint32 link_tail = 4;
+    transform.proto.Transform3d constraint = 5;
+    repeated double noise = 6;  
+}

@@ -16,6 +16,7 @@
 // #include "Common/type.h"
 #include "SlamLib/Common/color.hpp"
 #include "SlamLib/Common/pointcloud.h"
+#include "SlamLib/tic_toc.hpp"
 #include "Common/keyframe.hpp"
 #include "graph.hpp"
 namespace lifelong_backend {
@@ -48,11 +49,14 @@ public:
     void Save(const uint16_t& traj) {   
         // 保存keyframe信息 
         assert(database_save_path_ != ""); 
+        std::cout << "database_save_path_: " << database_save_path_ << std::endl;
         // 保存pose-graph
         // 节点
+        SlamLib::time::TicToc tt;
         for (auto& item : traj_vertex_map_[traj]) {
             item.Save(database_save_path_); 
         }
+        tt.toc("save vertex ");
         // for (uint64_t i = 0; i < vertex_container_.size(); i++) {
         //     vertex_container_[i].Save(database_save_path_);  
         // }
@@ -63,6 +67,7 @@ public:
         // 更新info文件
         std::ofstream ofs(database_save_path_ + "/info");
         ofs << "session_cnt " << info_.session_cnt << "\n";
+        ofs << "trajectory_num " << traj_vertex_map_.size() << "\n";
         ofs << "keyframe_cnt " << info_.keyframe_cnt << "\n";
         ofs << "edge_cnt " << info_.edge_cnt << "\n";
     }
@@ -136,40 +141,46 @@ public:
         uint64_t index = 0; 
         std::vector<uint32_t> vertex_localIndex(info_.keyframe_cnt, 0);
         // 遍历磁盘全部vertex数据，将属于traj轨迹的加载进来  
+        SlamLib::time::TicToc tt;
         while(index < info_.keyframe_cnt) {
             Vertex vertex;  
-            std::ifstream ifs(database_save_path_ + "/Vertex/id_" + std::to_string(index));
-
-            if(!ifs) {
+            if (!vertex.Load(database_save_path_ + "/Vertex/id_" + std::to_string(index))) {
                 index++;  
                 continue;
             }
-
             index++;  
-            // 读取该结点的信息
-            while(!ifs.eof()) {
-                std::string token;
-                ifs >> token;
+            // std::ifstream ifs(database_save_path_ + "/Vertex/id_" + std::to_string(index));
 
-                if (token == "id") {
-                    ifs >> vertex.id_; 
-                    //std::cout<<"vertex.id: "<<vertex.id_<<std::endl;
-                } else if (token == "pose") {
-                    Eigen::Matrix4d matrix; 
+            // if(!ifs) {
+            //     index++;  
+            //     continue;
+            // }
 
-                    for(int i = 0; i < 4; i++) {
-                        for(int j = 0; j < 4; j++) {
-                            ifs >> matrix(i, j);
-                        }
-                    }
+            // index++;  
+            // // 读取该结点的信息
+            // while(!ifs.eof()) {
+            //     std::string token;
+            //     ifs >> token;
+
+            //     if (token == "id") {
+            //         ifs >> vertex.id_; 
+            //         //std::cout<<"vertex.id: "<<vertex.id_<<std::endl;
+            //     } else if (token == "pose") {
+            //         Eigen::Matrix4d matrix; 
+
+            //         for(int i = 0; i < 4; i++) {
+            //             for(int j = 0; j < 4; j++) {
+            //                 ifs >> matrix(i, j);
+            //             }
+            //         }
                     
-                    vertex.pose_.translation() = matrix.block<3, 1>(0, 3);
-                    vertex.pose_.linear() = matrix.block<3, 3>(0, 0);
-                    //std::cout<<"vertex.pose_: "<<vertex.pose_.matrix()<<std::endl;
-                } else if (token == "traj") {
-                    ifs >> vertex.traj_; 
-                }
-            }
+            //         vertex.pose_.translation() = matrix.block<3, 1>(0, 3);
+            //         vertex.pose_.linear() = matrix.block<3, 3>(0, 0);
+            //         //std::cout<<"vertex.pose_: "<<vertex.pose_.matrix()<<std::endl;
+            //     } else if (token == "traj") {
+            //         ifs >> vertex.traj_; 
+            //     }
+            // }
 
             database_vertex_info_.emplace_back(vertex.traj_, traj_vertex_map_[vertex.traj_].size()); 
             vertex_localIndex[vertex.id_] = traj_vertex_map_[vertex.traj_].size();  
@@ -186,7 +197,8 @@ public:
             // vertex_container_.emplace_back(std::move(vertex));
             AddVertex(vertex);
         }
-        
+        tt.toc("load vertex: ");
+
         if (vertex_container_.size() == 0) {
             // std::cout<<common::RED<<
             // "Load KetFrame ERROR: vertex num keyframe num not match,  vertex num: "
@@ -262,21 +274,13 @@ public:
      * @return uint16_t 
      */
     uint16_t CreateNewSession() {
-        ++info_.session_cnt;
         traj_vertex_map_[info_.session_cnt].reserve(1000);
         traj_edge_map_[info_.session_cnt].reserve(1000);
-        return info_.session_cnt;
+        ++info_.session_cnt;
+        return info_.session_cnt - 1;
     }
 
-    /**
-     * @brief Set the Save Path object
-     * @param  database_save_pathMy Param doc
-     */
-    void SetSavePath(std::string const& database_save_path) {
-        database_save_path_ = database_save_path; 
-    }
 
-    
     /**
      * @brief 添加一个关键帧的数据
      * @param  keyframe  关键帧
@@ -322,6 +326,7 @@ public:
         uint32_t local_index = traj_vertex_map_[traj].size();
         database_vertex_info_.emplace_back(traj, local_index); 
         traj_vertex_map_[traj].emplace_back(id, traj, pose);
+        std::cout << "AddVertex, traj: " << traj << ",id: " << id << std::endl;
         AddPosePoint(traj, pose);  
         return local_index;  
     }
@@ -408,6 +413,21 @@ public:
         }
         edge.traj_ = traj;  
         traj_edge_map_[traj].push_back(edge);
+    }
+
+    /**
+     * @brief 
+     * 
+     * @param traj_id 
+     * @return true 
+     * @return false 
+     */
+    bool FindTrajectory(uint16_t traj_id) {
+        if (traj_vertex_map_.find(traj_id) == traj_vertex_map_.end()) {
+            return false;
+        }
+
+        return true;  
     }
 
     /**
@@ -504,6 +524,7 @@ public:
      */
     Vertex GetVertexByDatabaseIndex(const uint64_t& index) const {
         // return vertex_database_[index];
+        std::cout << "GetVertexByDatabaseIndex" << std::endl;
         auto& vertex_info = database_vertex_info_[index];
         return traj_vertex_map_.at(vertex_info.first)[vertex_info.second];
     }
@@ -517,6 +538,7 @@ public:
     Vertex GetVertexByTrajectoryLocalIndex(const uint16_t& traj, const uint64_t& index) const {
         // uint64_t database_idx = traj_vertexDatabaseIndex_map_.at(traj)[index];  
         // return vertex_database_[database_idx];
+        std::cout << "GetVertexByTrajectoryLocalIndex" << std::endl;
         return traj_vertex_map_.at(traj)[index];  
     }
 
@@ -572,7 +594,7 @@ public:
      * @return std::deque<Vertex>& 
      */
     std::vector<Vertex>& GetTrajectoryVertex(const uint16_t& traj) {
-        return traj_vertex_map_[traj];
+        return traj_vertex_map_.at(traj);
     }
 
     /**
@@ -903,7 +925,22 @@ public:
      * @return uint64_t 
      */
     uint64_t GetLocalID(uint64_t const& global_id) {
+        std::cout << "GetLocalID" << std::endl;
         return global_to_local_ID_.at(global_id);
+    }
+
+    /**
+     * @brief Get the Trajectory I D List object
+     * 
+     */
+    std::vector<uint16_t> GetTrajectoryIDList() {
+        std::vector<uint16_t> id_list;
+
+        for (auto& item : traj_vertex_map_) {
+            id_list.push_back(item.first);
+        }
+
+        return std::move(id_list);
     }
 
     /**
@@ -963,6 +1000,7 @@ public:
      * @param pose 
      */
     void UpdataKeyframePointcloud(const uint16_t& traj, const uint32_t& index, const Eigen::Isometry3d& pose) {
+        std::cout << "UpdataKeyframePointcloud" << std::endl;
         auto& keyframePositionCloud = traj_keyframePositionCloud_.at(traj);
         (*keyframePositionCloud)[index].x = pose.translation().x();
         (*keyframePositionCloud)[index].y = pose.translation().y();
@@ -1047,7 +1085,6 @@ private:
     std::vector<Vertex> vertex_database_;    // 缓存数据库中全部结点信息 
     std::unordered_map<uint16_t, std::list<uint32_t>> traj_vertex_list_;
     std::unordered_map<uint16_t, std::list<Edge>> traj_edge_list_;
-
 
     std::deque<Edge> edge_container_; // 保存图节点
     std::deque<Vertex> vertex_container_; // 保存图的边

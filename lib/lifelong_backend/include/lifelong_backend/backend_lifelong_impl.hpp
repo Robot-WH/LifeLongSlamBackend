@@ -50,28 +50,34 @@ LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string 
     work_mode_ = WorkMode::MAPPING;  
     mapping_thread_ = std::thread(&LifeLongBackEndOptimization::mapping, this);  // 启动线程  
     localization_thread_ = std::thread(&LifeLongBackEndOptimization::localization, this);   
-    // 设置数据库保存路径
-    option_.database_save_path_ = yaml["database_path"].as<std::string>();
-    PoseGraphDataBase::GetInstance().SetSavePath(option_.database_save_path_);  
-    trajectory_ = 0;   
-    Load();  
 }
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief 
+ * 
+ * @tparam _FeatureT 
+ * @param space_path 
+ * @return std::vector<uint16_t> 轨迹id 的 list  
+ */
 template<typename _FeatureT>
-void LifeLongBackEndOptimization<_FeatureT>::Load() {    
-    loop_detect_->Load(option_.database_save_path_); // 加载场景识别数据库 
+std::vector<uint16_t> LifeLongBackEndOptimization<_FeatureT>::Load(std::string space_path) {  
+    option_.database_save_path_ = space_path;  
+    loop_detect_->Load(space_path); // 加载场景识别数据库 
+    std::vector<uint16_t> traj_id_list;  
     // pose graph 加载
-    if (!PoseGraphDataBase::GetInstance().Load(option_.database_save_path_)) {
-        LOG(INFO) << SlamLib::color::YELLOW << "数据库载入失败，准备建图...... " << SlamLib::color::RESET;
-        return;
+    if (!PoseGraphDataBase::GetInstance().Load(space_path)) {
+        LOG(INFO) << SlamLib::color::YELLOW << "数据库为空，准备建图...... " << SlamLib::color::RESET;
+        trajectory_ = PoseGraphDataBase::GetInstance().CreateNewSession(); 
+        return traj_id_list;
     }  
+
+    traj_id_list = lifelong_backend::PoseGraphDataBase::GetInstance().GetTrajectoryIDList();
 
     work_mode_ = WorkMode::RELOCALIZATION;   // 默认为建图模式 
     LOG(INFO) << SlamLib::color::GREEN << "载入历史数据库，准备重定位......" << SlamLib::color::RESET;
 
-    id_ = PoseGraphDataBase::GetInstance().GetDataBaseInfo().keyframe_cnt;  
-    start_id_ = id_;  
+    trajectory_ = traj_id_list.front();      // 默认使用轨迹0
+    return std::move(traj_id_list);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -107,7 +113,26 @@ template<typename _FeatureT>
 void LifeLongBackEndOptimization<_FeatureT>::SavePoseGraph() {
     ForceGlobalOptimaze();  
     PoseGraphDataBase::GetInstance().Save(trajectory_);    // 数据库保存
+    std::cout << "数据库保存成功！" << std::endl;
     loop_detect_->Save(option_.database_save_path_);    // 回环检测数据库保存 
+    std::cout << "场景识别数据保存成功！" << std::endl;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+template<typename _FeatureT>
+bool LifeLongBackEndOptimization<_FeatureT>::SetTrajectory(uint16_t traj_id) {
+    std::cout << "SetTrajectory ,traj_id: " << traj_id << std::endl;
+    if (!PoseGraphDataBase::GetInstance().FindTrajectory(traj_id)) {
+        return false;
+    }
+    trajectory_ = traj_id;
+    // 可视化历史轨迹
+    KeyFrameInfo<_FeatureT> keyframe_info; 
+    keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_); 
+    keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_); 
+    IPC::Server::Instance().Publish("keyframes_info", keyframe_info); 
+    std::cout << "vertex_database_ size: " << keyframe_info.vertex_database_.size() << std::endl;
+    return true;  
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////   
