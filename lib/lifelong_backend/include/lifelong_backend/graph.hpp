@@ -80,14 +80,31 @@ struct Vertex {
         lifelong_backend::graph::proto::Vertex vertex;
         vertex.set_traj(traj_);
         vertex.set_id(id_);
-        lifelong_backend::transform::proto::Transform3d* pose(new lifelong_backend::transform::proto::Transform3d);
-        lifelong_backend::transform::proto::Vector3d* translation(new lifelong_backend::transform::proto::Vector3d);
-        lifelong_backend::transform::proto::Quaterniond* Quaterniond(new lifelong_backend::transform::proto::Quaterniond);
-        *translation = ToProto(pose_.translation());
-        *Quaterniond = ToProto(Eigen::Quaterniond(pose_.rotation()));
-        pose->set_allocated_translation(translation);
-        pose->set_allocated_rotation(Quaterniond);
-        vertex.set_allocated_pose(pose);
+        // lifelong_backend::transform::proto::Transform3d* pose(new lifelong_backend::transform::proto::Transform3d);
+        // lifelong_backend::transform::proto::Vector3d* translation(new lifelong_backend::transform::proto::Vector3d);
+        // lifelong_backend::transform::proto::Quaterniond* Quaterniond(new lifelong_backend::transform::proto::Quaterniond);
+        // *translation = ToProto(pose_.translation());
+        // *Quaterniond = ToProto(Eigen::Quaterniond(pose_.rotation()));
+        // pose->set_allocated_translation(translation);
+        // pose->set_allocated_rotation(Quaterniond);
+        // vertex.set_allocated_pose(pose);
+        const auto& m_pose = pose_.matrix();  
+        vertex.add_pose(m_pose(0, 0)); 
+        vertex.add_pose(m_pose(0, 1)); 
+        vertex.add_pose(m_pose(0, 2)); 
+        vertex.add_pose(m_pose(0, 3)); 
+        vertex.add_pose(m_pose(1, 0)); 
+        vertex.add_pose(m_pose(1, 1)); 
+        vertex.add_pose(m_pose(1, 2)); 
+        vertex.add_pose(m_pose(1, 3)); 
+        vertex.add_pose(m_pose(2, 0)); 
+        vertex.add_pose(m_pose(2, 1)); 
+        vertex.add_pose(m_pose(2, 2)); 
+        vertex.add_pose(m_pose(2, 3)); 
+        vertex.add_pose(m_pose(3, 0)); 
+        vertex.add_pose(m_pose(3, 1)); 
+        vertex.add_pose(m_pose(3, 2)); 
+        vertex.add_pose(m_pose(3, 3)); 
 
         if (!vertex.SerializeToOstream(&ofs)) {
             // cerr << "Failed to write vertex." << endl;
@@ -119,7 +136,25 @@ struct Vertex {
 
         traj_ = vertex.traj();
         id_ = vertex.id();
-        pose_ = ProtoTo(vertex.pose()); 
+        auto& m_pose = pose_.matrix();
+        m_pose(0, 0) = vertex.pose(0);
+        m_pose(0, 1) = vertex.pose(1);
+        m_pose(0, 2) = vertex.pose(2);
+        m_pose(0, 3) = vertex.pose(3);
+        m_pose(1, 0) = vertex.pose(4);
+        m_pose(1, 1) = vertex.pose(5);
+        m_pose(1, 2) = vertex.pose(6);
+        m_pose(1, 3) = vertex.pose(7);
+        m_pose(2, 0) = vertex.pose(8);
+        m_pose(2, 1) = vertex.pose(9);
+        m_pose(2, 2) = vertex.pose(10);
+        m_pose(2, 3) = vertex.pose(11);
+        m_pose(3, 0) = vertex.pose(12);
+        m_pose(3, 1) = vertex.pose(13);
+        m_pose(3, 2) = vertex.pose(14);
+        m_pose(3, 3) = vertex.pose(15);
+
+        // pose_ = ProtoTo(vertex.pose()); 
         return true;  
     }
 

@@ -50,15 +50,17 @@ public:
         // 保存keyframe信息 
         assert(database_save_path_ != ""); 
         std::cout << "database_save_path_: " << database_save_path_ << std::endl;
+        SlamLib::time::TicToc tt;
         // 保存pose-graph
         // 节点
         for (auto& item : traj_vertex_map_[traj]) {
             item.Save(database_save_path_); 
         }
+        tt.toc("save vertex ");
         // for (uint64_t i = 0; i < vertex_container_.size(); i++) {
         //     vertex_container_[i].Save(database_save_path_);  
         // }
-        SlamLib::time::TicToc tt;
+        tt.tic();  
         // 边
         for (uint64_t i = 0; i < traj_edge_map_[traj].size(); i++) {
             traj_edge_map_[traj][i].Save(database_save_path_);  
@@ -208,6 +210,7 @@ public:
         }
 
         index = 0;  
+        tt.tic(); 
         // 遍历磁盘全部edge数据，将属于traj轨迹的加载进来  
         while(index < info_.edge_cnt) {
             Edge edge;  
@@ -221,7 +224,7 @@ public:
             edge.link_head_local_index_ = vertex_localIndex[edge.link_id_.first]; 
             traj_edge_map_[edge.traj_].push_back(edge); 
         }
-
+        tt.toc("load edge ");
         return true; 
     }
 

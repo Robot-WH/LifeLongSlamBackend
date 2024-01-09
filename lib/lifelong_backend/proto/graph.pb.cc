@@ -124,13 +124,12 @@ void protobuf_AddDesc_graph_2eproto_impl() {
   protobuf_InitDefaults_graph_2eproto();
   ::google::protobuf::DescriptorPool::InternalAddGeneratedFile(
     "\n\013graph.proto\022\034lifelong_backend.graph.pr"
-    "oto\032\017transform.proto\"_\n\006Vertex\022\014\n\004traj\030\001"
-    " \001(\r\022\n\n\002id\030\002 \001(\r\022;\n\004pose\030\003 \001(\0132-.lifelon"
-    "g_backend.transform.proto.Transform3d\"\230\001"
-    "\n\004Edge\022\014\n\004traj\030\001 \001(\r\022\n\n\002id\030\002 \001(\r\022\021\n\tlink"
-    "_head\030\003 \001(\r\022\021\n\tlink_tail\030\004 \001(\r\022A\n\nconstr"
-    "aint\030\005 \001(\0132-.lifelong_backend.transform."
-    "proto.Transform3d\022\r\n\005noise\030\006 \003(\001b\006proto3", 320);
+    "oto\032\017transform.proto\"0\n\006Vertex\022\014\n\004traj\030\001"
+    " \001(\r\022\n\n\002id\030\002 \001(\r\022\014\n\004pose\030\003 \003(\001\"\230\001\n\004Edge\022"
+    "\014\n\004traj\030\001 \001(\r\022\n\n\002id\030\002 \001(\r\022\021\n\tlink_head\030\003"
+    " \001(\r\022\021\n\tlink_tail\030\004 \001(\r\022A\n\nconstraint\030\005 "
+    "\001(\0132-.lifelong_backend.transform.proto.T"
+    "ransform3d\022\r\n\005noise\030\006 \003(\001b\006proto3", 273);
   ::google::protobuf::MessageFactory::InternalRegisterGeneratedFile(
     "graph.proto", &protobuf_RegisterTypes);
   ::lifelong_backend::transform::proto::protobuf_AddDesc_transform_2eproto();
@@ -175,8 +174,6 @@ Vertex::Vertex()
 }
 
 void Vertex::InitAsDefaultInstance() {
-  pose_ = const_cast< ::lifelong_backend::transform::proto::Transform3d*>(
-      ::lifelong_backend::transform::proto::Transform3d::internal_default_instance());
 }
 
 Vertex::Vertex(const Vertex& from)
@@ -188,7 +185,6 @@ Vertex::Vertex(const Vertex& from)
 }
 
 void Vertex::SharedCtor() {
-  pose_ = NULL;
   ::memset(&traj_, 0, reinterpret_cast<char*>(&id_) -
     reinterpret_cast<char*>(&traj_) + sizeof(id_));
   _cached_size_ = 0;
@@ -200,9 +196,6 @@ Vertex::~Vertex() {
 }
 
 void Vertex::SharedDtor() {
-  if (this != &Vertex_default_instance_.get()) {
-    delete pose_;
-  }
 }
 
 void Vertex::SetCachedSize(int size) const {
@@ -249,12 +242,11 @@ void Vertex::Clear() {
 } while (0)
 
   ZR_(traj_, id_);
-  if (GetArenaNoVirtual() == NULL && pose_ != NULL) delete pose_;
-  pose_ = NULL;
 
 #undef ZR_HELPER_
 #undef ZR_
 
+  pose_.Clear();
 }
 
 bool Vertex::MergePartialFromCodedStream(
@@ -296,12 +288,17 @@ bool Vertex::MergePartialFromCodedStream(
         break;
       }
 
-      // optional .lifelong_backend.transform.proto.Transform3d pose = 3;
+      // repeated double pose = 3;
       case 3: {
         if (tag == 26) {
          parse_pose:
-          DO_(::google::protobuf::internal::WireFormatLite::ReadMessageNoVirtual(
-               input, mutable_pose()));
+          DO_((::google::protobuf::internal::WireFormatLite::ReadPackedPrimitive<
+                   double, ::google::protobuf::internal::WireFormatLite::TYPE_DOUBLE>(
+                 input, this->mutable_pose())));
+        } else if (tag == 25) {
+          DO_((::google::protobuf::internal::WireFormatLite::ReadRepeatedPrimitiveNoInline<
+                   double, ::google::protobuf::internal::WireFormatLite::TYPE_DOUBLE>(
+                 1, 26, input, this->mutable_pose())));
         } else {
           goto handle_unusual;
         }
@@ -343,10 +340,14 @@ void Vertex::SerializeWithCachedSizes(
     ::google::protobuf::internal::WireFormatLite::WriteUInt32(2, this->id(), output);
   }
 
-  // optional .lifelong_backend.transform.proto.Transform3d pose = 3;
-  if (this->has_pose()) {
-    ::google::protobuf::internal::WireFormatLite::WriteMessageMaybeToArray(
-      3, *this->pose_, output);
+  // repeated double pose = 3;
+  if (this->pose_size() > 0) {
+    ::google::protobuf::internal::WireFormatLite::WriteTag(3, ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED, output);
+    output->WriteVarint32(_pose_cached_byte_size_);
+  }
+  for (int i = 0; i < this->pose_size(); i++) {
+    ::google::protobuf::internal::WireFormatLite::WriteDoubleNoTag(
+      this->pose(i), output);
   }
 
   // @@protoc_insertion_point(serialize_end:lifelong_backend.graph.proto.Vertex)
@@ -366,11 +367,18 @@ void Vertex::SerializeWithCachedSizes(
     target = ::google::protobuf::internal::WireFormatLite::WriteUInt32ToArray(2, this->id(), target);
   }
 
-  // optional .lifelong_backend.transform.proto.Transform3d pose = 3;
-  if (this->has_pose()) {
+  // repeated double pose = 3;
+  if (this->pose_size() > 0) {
+    target = ::google::protobuf::internal::WireFormatLite::WriteTagToArray(
+      3,
+      ::google::protobuf::internal::WireFormatLite::WIRETYPE_LENGTH_DELIMITED,
+      target);
+    target = ::google::protobuf::io::CodedOutputStream::WriteVarint32ToArray(
+      _pose_cached_byte_size_, target);
+  }
+  for (int i = 0; i < this->pose_size(); i++) {
     target = ::google::protobuf::internal::WireFormatLite::
-      InternalWriteMessageNoVirtualToArray(
-        3, *this->pose_, false, target);
+      WriteDoubleNoTagToArray(this->pose(i), target);
   }
 
   // @@protoc_insertion_point(serialize_to_array_end:lifelong_backend.graph.proto.Vertex)
@@ -395,11 +403,20 @@ size_t Vertex::ByteSizeLong() const {
         this->id());
   }
 
-  // optional .lifelong_backend.transform.proto.Transform3d pose = 3;
-  if (this->has_pose()) {
-    total_size += 1 +
-      ::google::protobuf::internal::WireFormatLite::MessageSizeNoVirtual(
-        *this->pose_);
+  // repeated double pose = 3;
+  {
+    size_t data_size = 0;
+    unsigned int count = this->pose_size();
+    data_size = 8UL * count;
+    if (data_size > 0) {
+      total_size += 1 +
+        ::google::protobuf::internal::WireFormatLite::Int32Size(data_size);
+    }
+    int cached_size = ::google::protobuf::internal::ToCachedSize(data_size);
+    GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+    _pose_cached_byte_size_ = cached_size;
+    GOOGLE_SAFE_CONCURRENT_WRITES_END();
+    total_size += data_size;
   }
 
   int cached_size = ::google::protobuf::internal::ToCachedSize(total_size);
@@ -435,14 +452,12 @@ void Vertex::MergeFrom(const Vertex& from) {
 
 void Vertex::UnsafeMergeFrom(const Vertex& from) {
   GOOGLE_DCHECK(&from != this);
+  pose_.UnsafeMergeFrom(from.pose_);
   if (from.traj() != 0) {
     set_traj(from.traj());
   }
   if (from.id() != 0) {
     set_id(from.id());
-  }
-  if (from.has_pose()) {
-    mutable_pose()->::lifelong_backend::transform::proto::Transform3d::MergeFrom(from.pose());
   }
 }
 
@@ -472,7 +487,7 @@ void Vertex::Swap(Vertex* other) {
 void Vertex::InternalSwap(Vertex* other) {
   std::swap(traj_, other->traj_);
   std::swap(id_, other->id_);
-  std::swap(pose_, other->pose_);
+  pose_.UnsafeArenaSwap(&other->pose_);
   _internal_metadata_.Swap(&other->_internal_metadata_);
   std::swap(_cached_size_, other->_cached_size_);
 }
@@ -516,43 +531,34 @@ void Vertex::set_id(::google::protobuf::uint32 value) {
   // @@protoc_insertion_point(field_set:lifelong_backend.graph.proto.Vertex.id)
 }
 
-// optional .lifelong_backend.transform.proto.Transform3d pose = 3;
-bool Vertex::has_pose() const {
-  return this != internal_default_instance() && pose_ != NULL;
+// repeated double pose = 3;
+int Vertex::pose_size() const {
+  return pose_.size();
 }
 void Vertex::clear_pose() {
-  if (GetArenaNoVirtual() == NULL && pose_ != NULL) delete pose_;
-  pose_ = NULL;
+  pose_.Clear();
 }
-const ::lifelong_backend::transform::proto::Transform3d& Vertex::pose() const {
+double Vertex::pose(int index) const {
   // @@protoc_insertion_point(field_get:lifelong_backend.graph.proto.Vertex.pose)
-  return pose_ != NULL ? *pose_
-                         : *::lifelong_backend::transform::proto::Transform3d::internal_default_instance();
+  return pose_.Get(index);
 }
-::lifelong_backend::transform::proto::Transform3d* Vertex::mutable_pose() {
-  
-  if (pose_ == NULL) {
-    pose_ = new ::lifelong_backend::transform::proto::Transform3d;
-  }
-  // @@protoc_insertion_point(field_mutable:lifelong_backend.graph.proto.Vertex.pose)
+void Vertex::set_pose(int index, double value) {
+  pose_.Set(index, value);
+  // @@protoc_insertion_point(field_set:lifelong_backend.graph.proto.Vertex.pose)
+}
+void Vertex::add_pose(double value) {
+  pose_.Add(value);
+  // @@protoc_insertion_point(field_add:lifelong_backend.graph.proto.Vertex.pose)
+}
+const ::google::protobuf::RepeatedField< double >&
+Vertex::pose() const {
+  // @@protoc_insertion_point(field_list:lifelong_backend.graph.proto.Vertex.pose)
   return pose_;
 }
-::lifelong_backend::transform::proto::Transform3d* Vertex::release_pose() {
-  // @@protoc_insertion_point(field_release:lifelong_backend.graph.proto.Vertex.pose)
-  
-  ::lifelong_backend::transform::proto::Transform3d* temp = pose_;
-  pose_ = NULL;
-  return temp;
-}
-void Vertex::set_allocated_pose(::lifelong_backend::transform::proto::Transform3d* pose) {
-  delete pose_;
-  pose_ = pose;
-  if (pose) {
-    
-  } else {
-    
-  }
-  // @@protoc_insertion_point(field_set_allocated:lifelong_backend.graph.proto.Vertex.pose)
+::google::protobuf::RepeatedField< double >*
+Vertex::mutable_pose() {
+  // @@protoc_insertion_point(field_mutable_list:lifelong_backend.graph.proto.Vertex.pose)
+  return &pose_;
 }
 
 inline const Vertex* Vertex::internal_default_instance() {

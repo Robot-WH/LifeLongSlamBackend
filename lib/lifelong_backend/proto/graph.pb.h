@@ -120,20 +120,24 @@ class Vertex : public ::google::protobuf::Message /* @@protoc_insertion_point(cl
   ::google::protobuf::uint32 id() const;
   void set_id(::google::protobuf::uint32 value);
 
-  // optional .lifelong_backend.transform.proto.Transform3d pose = 3;
-  bool has_pose() const;
+  // repeated double pose = 3;
+  int pose_size() const;
   void clear_pose();
   static const int kPoseFieldNumber = 3;
-  const ::lifelong_backend::transform::proto::Transform3d& pose() const;
-  ::lifelong_backend::transform::proto::Transform3d* mutable_pose();
-  ::lifelong_backend::transform::proto::Transform3d* release_pose();
-  void set_allocated_pose(::lifelong_backend::transform::proto::Transform3d* pose);
+  double pose(int index) const;
+  void set_pose(int index, double value);
+  void add_pose(double value);
+  const ::google::protobuf::RepeatedField< double >&
+      pose() const;
+  ::google::protobuf::RepeatedField< double >*
+      mutable_pose();
 
   // @@protoc_insertion_point(class_scope:lifelong_backend.graph.proto.Vertex)
  private:
 
   ::google::protobuf::internal::InternalMetadataWithArena _internal_metadata_;
-  ::lifelong_backend::transform::proto::Transform3d* pose_;
+  ::google::protobuf::RepeatedField< double > pose_;
+  mutable int _pose_cached_byte_size_;
   ::google::protobuf::uint32 traj_;
   ::google::protobuf::uint32 id_;
   mutable int _cached_size_;
@@ -313,43 +317,34 @@ inline void Vertex::set_id(::google::protobuf::uint32 value) {
   // @@protoc_insertion_point(field_set:lifelong_backend.graph.proto.Vertex.id)
 }
 
-// optional .lifelong_backend.transform.proto.Transform3d pose = 3;
-inline bool Vertex::has_pose() const {
-  return this != internal_default_instance() && pose_ != NULL;
+// repeated double pose = 3;
+inline int Vertex::pose_size() const {
+  return pose_.size();
 }
 inline void Vertex::clear_pose() {
-  if (GetArenaNoVirtual() == NULL && pose_ != NULL) delete pose_;
-  pose_ = NULL;
+  pose_.Clear();
 }
-inline const ::lifelong_backend::transform::proto::Transform3d& Vertex::pose() const {
+inline double Vertex::pose(int index) const {
   // @@protoc_insertion_point(field_get:lifelong_backend.graph.proto.Vertex.pose)
-  return pose_ != NULL ? *pose_
-                         : *::lifelong_backend::transform::proto::Transform3d::internal_default_instance();
+  return pose_.Get(index);
 }
-inline ::lifelong_backend::transform::proto::Transform3d* Vertex::mutable_pose() {
-  
-  if (pose_ == NULL) {
-    pose_ = new ::lifelong_backend::transform::proto::Transform3d;
-  }
-  // @@protoc_insertion_point(field_mutable:lifelong_backend.graph.proto.Vertex.pose)
+inline void Vertex::set_pose(int index, double value) {
+  pose_.Set(index, value);
+  // @@protoc_insertion_point(field_set:lifelong_backend.graph.proto.Vertex.pose)
+}
+inline void Vertex::add_pose(double value) {
+  pose_.Add(value);
+  // @@protoc_insertion_point(field_add:lifelong_backend.graph.proto.Vertex.pose)
+}
+inline const ::google::protobuf::RepeatedField< double >&
+Vertex::pose() const {
+  // @@protoc_insertion_point(field_list:lifelong_backend.graph.proto.Vertex.pose)
   return pose_;
 }
-inline ::lifelong_backend::transform::proto::Transform3d* Vertex::release_pose() {
-  // @@protoc_insertion_point(field_release:lifelong_backend.graph.proto.Vertex.pose)
-  
-  ::lifelong_backend::transform::proto::Transform3d* temp = pose_;
-  pose_ = NULL;
-  return temp;
-}
-inline void Vertex::set_allocated_pose(::lifelong_backend::transform::proto::Transform3d* pose) {
-  delete pose_;
-  pose_ = pose;
-  if (pose) {
-    
-  } else {
-    
-  }
-  // @@protoc_insertion_point(field_set_allocated:lifelong_backend.graph.proto.Vertex.pose)
+inline ::google::protobuf::RepeatedField< double >*
+Vertex::mutable_pose() {
+  // @@protoc_insertion_point(field_mutable_list:lifelong_backend.graph.proto.Vertex.pose)
+  return &pose_;
 }
 
 inline const Vertex* Vertex::internal_default_instance() {

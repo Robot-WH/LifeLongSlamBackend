@@ -5,7 +5,7 @@ import "transform.proto";
 message Vertex {
     uint32 traj = 1;
     uint32 id = 2;
-    transform.proto.Transform3d pose = 3;
+    repeated double pose = 3;
 }
 
 message Edge {
