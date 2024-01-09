@@ -64,7 +64,7 @@ struct Vertex {
      */
     void Save(std::string const& path) {
         if (!boost::filesystem::is_directory(path)) {
-            std::cout << "Save, path: " << path << std::endl;
+            // std::cout << "Save, path: " << path << std::endl;
             boost::filesystem::create_directory(path);
         }
 
@@ -153,15 +153,82 @@ struct Edge {
           boost::filesystem::create_directory(path);
         }
 
-        std::ofstream ofs(path + "/Edge/id_" + std::to_string(id_));
-        ofs << "traj " << traj_ << "\n";
-        ofs << "id " << id_ << "\n";
-        ofs << "link_head " << link_id_.first << "\n";
-        ofs << "link_tail " << link_id_.second << "\n";
-        ofs << "constraint\n";
-        ofs << constraint_.matrix()<<"\n";
-        ofs << "noise\n";
-        ofs << noise_.matrix()<<"\n";
+        // std::ofstream ofs(path + "/Edge/id_" + std::to_string(id_));
+        // ofs << "traj " << traj_ << "\n";
+        // ofs << "id " << id_ << "\n";
+        // ofs << "link_head " << link_id_.first << "\n";
+        // ofs << "link_tail " << link_id_.second << "\n";
+        // ofs << "constraint\n";
+        // ofs << constraint_.matrix()<<"\n";
+        // ofs << "noise\n";
+        // ofs << noise_.matrix()<<"\n";
+
+        std::fstream ofs(path + "/Edge/id_" + std::to_string(id_), 
+            std::ios::out | std::ios::trunc | std::ios::binary);
+        
+        lifelong_backend::graph::proto::Edge edge;
+        edge.set_traj(traj_);
+        edge.set_id(id_);
+        edge.set_link_head(link_id_.first); 
+        edge.set_link_tail(link_id_.second);   
+
+        lifelong_backend::transform::proto::Transform3d* constraint(new lifelong_backend::transform::proto::Transform3d);
+        lifelong_backend::transform::proto::Vector3d* translation(new lifelong_backend::transform::proto::Vector3d);
+        lifelong_backend::transform::proto::Quaterniond* Quaterniond(new lifelong_backend::transform::proto::Quaterniond);
+        *translation = ToProto(constraint_.translation());
+        *Quaterniond = ToProto(Eigen::Quaterniond(constraint_.rotation()));
+        constraint->set_allocated_translation(translation);
+        constraint->set_allocated_rotation(Quaterniond);
+        edge.set_allocated_constraint(constraint);
+
+        edge.add_noise(noise_(0, 0)); 
+        edge.add_noise(noise_(0, 1)); 
+        edge.add_noise(noise_(0, 2)); 
+        edge.add_noise(noise_(0, 3)); 
+        edge.add_noise(noise_(0, 4)); 
+        edge.add_noise(noise_(0, 5)); 
+
+        if (!edge.SerializeToOstream(&ofs)) {
+            // cerr << "Failed to write vertex." << endl;
+            // return;
+        }
+    }
+
+    /**
+     * @brief 
+     * 
+     * @param path 
+     * @return true 
+     * @return false 
+     */
+    bool Load(const std::string& path) {
+        // std::ifstream ifs(path);
+        std::fstream ifs(path, std::ios::in | std::ios::binary);
+
+        if(!ifs) {
+            return false;
+        }
+
+        lifelong_backend::graph::proto::Edge edge;
+
+        if (!edge.ParseFromIstream(&ifs)) {
+            // cerr << "Failed to parse address book." << endl;
+            return false;
+        }
+
+        traj_ = edge.traj();
+        id_ = edge.id();
+        link_id_.first = edge.link_head();
+        link_id_.second = edge.link_tail();
+        constraint_ = ProtoTo(edge.constraint()); 
+        noise_(0, 0) = edge.noise(0);
+        noise_(0, 1) = edge.noise(1);
+        noise_(0, 2) = edge.noise(2);
+        noise_(0, 3) = edge.noise(3);
+        noise_(0, 4) = edge.noise(4);
+        noise_(0, 5) = edge.noise(5);
+
+        return true;  
     }
 
     int16_t traj_ = -1;     // 该edge所属的轨迹

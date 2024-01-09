@@ -52,18 +52,18 @@ public:
         std::cout << "database_save_path_: " << database_save_path_ << std::endl;
         // 保存pose-graph
         // 节点
-        SlamLib::time::TicToc tt;
         for (auto& item : traj_vertex_map_[traj]) {
             item.Save(database_save_path_); 
         }
-        tt.toc("save vertex ");
         // for (uint64_t i = 0; i < vertex_container_.size(); i++) {
         //     vertex_container_[i].Save(database_save_path_);  
         // }
+        SlamLib::time::TicToc tt;
         // 边
         for (uint64_t i = 0; i < traj_edge_map_[traj].size(); i++) {
             traj_edge_map_[traj][i].Save(database_save_path_);  
         }
+        tt.toc("save edge ");
         // 更新info文件
         std::ofstream ofs(database_save_path_ + "/info");
         ofs << "session_cnt " << info_.session_cnt << "\n";
@@ -211,58 +211,15 @@ public:
         // 遍历磁盘全部edge数据，将属于traj轨迹的加载进来  
         while(index < info_.edge_cnt) {
             Edge edge;  
-            std::ifstream ifs(database_save_path_ + "/Edge/id_" + std::to_string(index));
 
-            if(!ifs) {
+            if (!edge.Load(database_save_path_ + "/Edge/id_" + std::to_string(index))) {
                 index++;  
-                continue;;
+                continue;
             }
-
             index++;  
-
-            while(!ifs.eof()) {
-                std::string token;
-                ifs >> token;
-
-                if (token == "traj") {
-                    ifs >> edge.traj_; 
-                } else if (token == "id") {
-                    ifs >> edge.id_; 
-                    //std::cout<<"edge.id: "<<edge.id_<<std::endl;
-                } else if (token == "link_head") {
-                    ifs >> edge.link_id_.first; 
-                    //std::cout<<"link_head: "<<edge.link_id_.first<<std::endl;
-                } else if (token == "link_tail") {
-                    ifs >> edge.link_id_.second; 
-                    //std::cout<<"link_tail: "<<edge.link_id_.second<<std::endl;
-                } else if (token == "constraint") {
-                    Eigen::Matrix4d matrix; 
-
-                    for(int i = 0; i < 4; i++) {
-                        for(int j = 0; j < 4; j++) {
-                            ifs >> matrix(i, j);
-                        }
-                    }
-
-                    edge.constraint_.translation() = matrix.block<3, 1>(0, 3);
-                    edge.constraint_.linear() = matrix.block<3, 3>(0, 0);
-                    //std::cout<<"edge.constraint_: "<<edge.constraint_.matrix()<<std::endl;
-                } else if (token == "noise") {
-                    for(int i = 0; i < 6; i++) {
-                            ifs >> edge.noise_(0, i);
-                    }
-                    //std::cout<<"edge.noise_: "<<edge.noise_.matrix()<<std::endl;
-                }
-            }
 
             edge.link_head_local_index_ = vertex_localIndex[edge.link_id_.first]; 
             traj_edge_map_[edge.traj_].push_back(edge); 
-
-            if (edge.traj_ != traj) {
-                continue;  
-            }
-
-            edge_container_.push_back(std::move(edge));
         }
 
         return true; 
@@ -895,6 +852,16 @@ public:
         return true;  
     }
 
+    /**
+     * @brief Get the Key Frame Point Cloud object
+     * 
+     * @tparam _PointT 
+     * @param name 
+     * @param global_id 
+     * @param curr_points 
+     * @return true 
+     * @return false 
+     */
     template<typename _PointT>
     bool GetKeyFramePointCloud(std::string const& name, uint32_t const& global_id, 
             pcl::PointCloud<_PointT>& curr_points) {
@@ -940,7 +907,7 @@ public:
             id_list.push_back(item.first);
         }
 
-        return std::move(id_list);
+        return id_list;
     }
 
     /**
