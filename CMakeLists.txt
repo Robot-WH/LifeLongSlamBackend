@@ -66,16 +66,16 @@ catkin_package(
   message_generation
 )
 
-add_subdirectory(lib/lifelong_backend)
+add_subdirectory(lifelong_backend)
 
 include_directories(
     include
     ${catkin_INCLUDE_DIRS} 
-    lib/lifelong_backend/include
+    lifelong_backend/include
     ${PCL_INCLUDE_DIRS}
 )
 
-add_executable(backend_node src/ros_wrapper.cpp)
+add_executable(backend_node app/ros_wrapper.cpp)
 target_link_libraries(backend_node
     ${catkin_LIBRARIES} 
     lifelong_backend
