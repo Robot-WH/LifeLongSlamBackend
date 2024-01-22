@@ -11,6 +11,7 @@
 #include "GlobalDescriptor/scanContext/Scancontext.hpp"
 #include "SlamLib/Common/color.hpp"
 #include "SlamLib/Common/pointcloud.h"
+#include "../proto/sc.pb.h"
 namespace lifelong_backend {
 /**
  * @brief: 通过scan-context进行关键帧位置识别  
@@ -123,23 +124,46 @@ public:
         if(!boost::filesystem::is_directory(database_dir)) {
             boost::filesystem::create_directory(database_dir);
         }
+        SlamLib::time::TicToc tt;
+        uint16_t ring_num = sc_.GetRingNum();
+        uint16_t sector_num = sc_.GetSectorKeyNum();
         // 循环保存所有的描述子数据
         for (uint64_t i = 0; i < polarcontexts_sc_.size(); i++) {
             // ofstream 文件输出流  用于向文件输出数据   
-            std::ofstream ofs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(i));
-            ofs << "sc_desc\n";
-            ofs << polarcontexts_sc_[i];
-            // if (i == 1) 
-            //     std::cout<<"polarcontexts_sc_[1]: "<<std::endl<<polarcontexts_sc_[i]<<std::endl;
-            ofs << "\nringkey_desc\n";
+            std::fstream ofs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(i), 
+                std::ios::out | std::ios::trunc | std::ios::binary);
 
-            for (uint16_t k = 0; k < polarcontext_ringkeys_vec_[i].size(); k++) {
-                ofs << polarcontext_ringkeys_vec_[i][k] << " ";
-                // if (i == 1) 
-                //     std::cout<<"polarcontext_ringkeys_vec_[1]: "<<polarcontext_ringkeys_vec_[i][k]<<" "<<std::endl;
+            lifelong_backend::scan_context::proto::scan_context sc_proto;
+
+            for(int row = 0; row < ring_num; row++) {
+                for(int col = 0; col < sector_num; col++) {
+                    sc_proto.add_polarcontext(polarcontexts_sc_[i](row, col)); 
+                }
             }
+            
+            for (uint16_t k = 0; k < polarcontext_ringkeys_vec_[i].size(); k++) {
+                sc_proto.add_ringkey(polarcontext_ringkeys_vec_[i][k]);
+            }
+
+            if (!sc_proto.SerializeToOstream(&ofs)) {
+                std::cerr << "sc_proto Failed to write Ostream. index: " << i << std::endl;
+                continue;
+            }
+            // // ofstream 文件输出流  用于向文件输出数据   
+            // std::ofstream ofs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(i));
+            // ofs << "sc_desc\n";
+            // ofs << polarcontexts_sc_[i];
+            // // if (i == 1) 
+            // //     std::cout<<"polarcontexts_sc_[1]: "<<std::endl<<polarcontexts_sc_[i]<<std::endl;
+            // ofs << "\nringkey_desc\n";
+
+            // for (uint16_t k = 0; k < polarcontext_ringkeys_vec_[i].size(); k++) {
+            //     ofs << polarcontext_ringkeys_vec_[i][k] << " ";
+            //     // if (i == 1) 
+            //     //     std::cout<<"polarcontext_ringkeys_vec_[1]: "<<polarcontext_ringkeys_vec_[i][k]<<" "<<std::endl;
+            // }
         }
-        
+        tt.toc("save scan-context ");
         return true; 
     }
 
@@ -147,57 +171,99 @@ public:
      * @brief 
      * 
      * @param database_dir 
+     * @param max_index 加载到最大的序列号
      */
-    void Load(std::string const& database_dir) {
+    void Load(const std::string& database_dir, const uint32_t& max_index) {
         polarcontext_ringkeys_vec_.clear(); 
         polarcontexts_sc_.clear();  
-        uint64_t index = 0;
+        uint32_t index = 0;
         uint16_t ring_num = sc_.GetRingNum();
         uint16_t sector_num = sc_.GetSectorKeyNum();
+        std::cout << "加载scan_context描述子,最大index: " << max_index << std::endl;
         // 加载描述子 
         SlamLib::time::TicToc tt;
 
-        while(1) {
+        while(index < max_index) {
             // ifstream 文件输入流  用于向文件输入数据    
-            std::ifstream ifs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(index));
-           
+           std::fstream ifs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(index), 
+                                            std::ios::in | std::ios::binary);
+            
             if(!ifs) {
-                break;
+                std::cerr << "failed to create fstream, index: " << index << std::endl;
+                continue;
             }
 
             index++;  
+            lifelong_backend::scan_context::proto::scan_context sc_proto;
 
-            while(!ifs.eof()) {
-                std::string token;
-                ifs >> token;
-
-                if(token == "sc_desc") {
-                    Eigen::MatrixXd sc = Eigen::MatrixXd::Zero(ring_num, sector_num);
-                    for(int i = 0; i < ring_num; i++) {
-                        for(int j = 0; j < sector_num; j++) {
-                            ifs >> sc(i, j);
-                        }
-                    }
-
-                    polarcontexts_sc_.push_back(std::move(sc));
-                    // std::cout<<"sc_desc: "<<std::endl<<sc<<std::endl;
-                } else if (token == "ringkey_desc") {
-                    std::vector<float> ring(ring_num, 0);
-                    // std::cout<<"ring: "<<std::endl;
-                    for(int j = 0; j < ring_num; j++) {
-                        ifs >> ring[j];
-                        // std::cout<<ring[j]<<std::endl;
-                    }
-
-                    polarcontext_ringkeys_vec_.push_back(std::move(ring));
-                }        
+            if (!sc_proto.ParseFromIstream(&ifs)) {
+                std::cerr << "sc_proto failed to read fstream, index: " << index - 1 << std::endl;
+                continue;
             }
+
+            Eigen::MatrixXd sc = Eigen::MatrixXd::Zero(ring_num, sector_num);
+            uint16_t n = 0; 
+
+            for(int i = 0; i < ring_num; i++) {
+                for(int j = 0; j < sector_num; j++) {
+                    sc(i, j) = sc_proto.polarcontext(n);
+                    ++n;  
+                }
+            }
+
+            polarcontexts_sc_.push_back(std::move(sc));
+
+            std::vector<float> ring(ring_num, 0);
+            // std::cout<<"ring: "<<std::endl;
+            for(int j = 0; j < ring_num; j++) {
+                ring[j] = sc_proto.ringkey(j);
+            }
+
+            polarcontext_ringkeys_vec_.push_back(std::move(ring));
+
+            // // ifstream 文件输入流  用于向文件输入数据    
+            // std::ifstream ifs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(index));
+           
+            // if(!ifs) {
+            //     break;
+            // }
+
+            // index++;  
+
+            // while(!ifs.eof()) {
+            //     std::string token;
+            //     ifs >> token;
+
+            //     if(token == "sc_desc") {
+            //         Eigen::MatrixXd sc = Eigen::MatrixXd::Zero(ring_num, sector_num);
+            //         for(int i = 0; i < ring_num; i++) {
+            //             for(int j = 0; j < sector_num; j++) {
+            //                 ifs >> sc(i, j);
+            //             }
+            //         }
+
+            //         polarcontexts_sc_.push_back(std::move(sc));
+            //         // std::cout<<"sc_desc: "<<std::endl<<sc<<std::endl;
+            //     } else if (token == "ringkey_desc") {
+            //         std::vector<float> ring(ring_num, 0);
+            //         // std::cout<<"ring: "<<std::endl;
+            //         for(int j = 0; j < ring_num; j++) {
+            //             ifs >> ring[j];
+            //             // std::cout<<ring[j]<<std::endl;
+            //         }
+
+            //         polarcontext_ringkeys_vec_.push_back(std::move(ring));
+            //     }        
+            // }
         }
 
+        tt.toc("load scan-context ");
         LOG(INFO) << SlamLib::color::GREEN << "load scan-context num " 
             << index << SlamLib::color::RESET;
-        tt.toc("load time ");
-        if (polarcontext_ringkeys_vec_.empty())  return;  
+        
+        if (polarcontext_ringkeys_vec_.empty())  
+            return;  
+
         // 构建KDTREE
         tt.tic();  
         polarcontext_ringkeys_to_search_.clear();

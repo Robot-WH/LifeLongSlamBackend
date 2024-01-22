@@ -1,0 +1,7 @@
+syntax = "proto3";
+package lifelong_backend.scan_context.proto;
+
+message scan_context {
+    repeated double polarcontext = 1;
+    repeated double ringkey = 2; 
+}

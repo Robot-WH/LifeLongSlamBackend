@@ -62,7 +62,6 @@ LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string 
 template<typename _FeatureT>
 std::vector<uint16_t> LifeLongBackEndOptimization<_FeatureT>::Load(std::string space_path) {  
     option_.database_save_path_ = space_path;  
-    loop_detect_->Load(space_path); // 加载场景识别数据库 
     std::vector<uint16_t> traj_id_list;  
     // pose graph 加载
     if (!PoseGraphDataBase::GetInstance().Load(space_path)) {
@@ -71,6 +70,7 @@ std::vector<uint16_t> LifeLongBackEndOptimization<_FeatureT>::Load(std::string s
         return traj_id_list;
     }  
 
+    loop_detect_->Load(space_path, PoseGraphDataBase::GetInstance().GetDataBaseInfo().keyframe_cnt); // 加载场景识别数据库 
     traj_id_list = lifelong_backend::PoseGraphDataBase::GetInstance().GetTrajectoryIDList();
 
     work_mode_ = WorkMode::RELOCALIZATION;   // 默认为建图模式 

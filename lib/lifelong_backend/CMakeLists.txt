@@ -42,6 +42,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_library(lifelong_backend_proto STATIC 
     proto/transform.pb.cc
     proto/graph.pb.cc
+    proto/sc.pb.cc
 )
 target_link_libraries(lifelong_backend_proto ${Protobuf_LIBRARIES}) 
 target_include_directories(lifelong_backend_proto PUBLIC 

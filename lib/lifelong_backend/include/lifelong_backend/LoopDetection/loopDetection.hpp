@@ -274,8 +274,8 @@ public:
      * 
      * @param path 
      */
-    void Load(std::string const& path) {
-        scene_recognizer_.Load(path);   // 场景识别模块加载数据
+    void Load(std::string const& path, const uint64_t& max_index) {
+        scene_recognizer_.Load(path, max_index);   // 场景识别模块加载数据
         // pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud;
         // keyframe_position_cloud = PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud();
         

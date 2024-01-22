@@ -118,7 +118,7 @@ protected:
     bool optimize() override;
 private:
     // 局部优化每次处理的最大帧数  
-    int max_keyframes_per_update_ = 10;
+    int max_keyframes_per_update_ = 30;
     int planeConstraint_optimize_freq_ = 5;
     bool enable_GNSS_optimize_ = false;  
     bool enable_planeConstraint_optimize_ = false;

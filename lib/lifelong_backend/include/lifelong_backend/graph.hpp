@@ -67,13 +67,11 @@ struct Vertex {
             // std::cout << "Save, path: " << path << std::endl;
             boost::filesystem::create_directory(path);
         }
-
         // std::ofstream ofs(path + "/Vertex/id_" + std::to_string(id_));
         // ofs << "traj " << traj_ << "\n";  
         // ofs << "id " << id_ << "\n";
         // ofs << "pose\n";
         // ofs << pose_.matrix() <<"\n";
-
         std::fstream ofs(path + "/Vertex/id_" + std::to_string(id_), 
             std::ios::out | std::ios::trunc | std::ios::binary);
 
