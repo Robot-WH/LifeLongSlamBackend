@@ -26,6 +26,7 @@
 #include <lifelong_backend/SetSpace.h>
 #include <lifelong_backend/SaveTraj.h>
 #include <lifelong_backend/SetTraj.h>
+#include <lifelong_backend/SetCommand.h>
 #include <lifelong_backend/control_info.h>
 #include <lifelong_backend/workspace_info.h>
 

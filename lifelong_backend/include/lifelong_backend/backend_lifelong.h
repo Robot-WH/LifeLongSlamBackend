@@ -35,7 +35,8 @@ private:
     enum class WorkMode {
         RELOCALIZATION = 0, // 开机之后处于该模式   接着会进行重定位找回定位 
         LOCALIZATION,
-        MAPPING
+        MAPPING,
+        SLEEP
     };
     // using base = BackEndOptimizationBase<_FeatureT>; 
     using PointCloudPtr = typename pcl::PointCloud<_FeatureT>::Ptr;  
@@ -67,6 +68,8 @@ public:
     void SavePoseGraph() override;  
 
     bool SetTrajectory(uint16_t traj_id) override;
+
+    uint8_t SetWorkMode(uint16_t cmd);
 
     /**
      * @brief: 添加激光里程计关键帧
@@ -122,6 +125,7 @@ private:
     int planeConstraint_optimize_freq_ = 5;
     bool enable_GNSS_optimize_ = false;  
     bool enable_planeConstraint_optimize_ = false;
+    bool enable_lifelong_ = true;  
     bool enable_map_update_ = true;  // 开启地图更新 
     bool has_loop_ = false;  
     uint64_t id_ = 0;

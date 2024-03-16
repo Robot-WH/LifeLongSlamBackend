@@ -39,6 +39,7 @@ add_service_files(FILES
   SetSpace.srv
   SaveTraj.srv
   SetTraj.srv
+  SetCommand.srv
 )
 
 generate_messages(

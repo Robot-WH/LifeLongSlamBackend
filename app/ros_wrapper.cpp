@@ -44,6 +44,7 @@ ros::ServiceServer save_map_server;  // 地图保存服务
 ros::ServiceServer set_space_server;  // 设置空间服务 
 ros::ServiceServer save_traj_server; // 保存轨迹服务 
 ros::ServiceServer set_traj_server; // 设置轨迹服务 
+ros::ServiceServer set_workMode_server; // 设置工作模式服务  1\Lifelong  2\纯建图  3\纯定位 
 
 ros::Subscriber keyframe_sub; 
 ros::Subscriber getWorkSpace_sub; 
@@ -67,6 +68,7 @@ bool SaveMapService(lifelong_backend::SaveMapRequest& req, lifelong_backend::Sav
 bool SetSpaceService(lifelong_backend::SetSpaceRequest& req, lifelong_backend::SetSpaceResponse& res);
 bool SaveTrajService(lifelong_backend::SaveTrajRequest& req, lifelong_backend::SaveTrajResponse& res);
 bool SetTrajService(lifelong_backend::SetTrajRequest& req, lifelong_backend::SetTrajResponse& res);
+bool SetWorkMode(lifelong_backend::SetCommandRequest& req, lifelong_backend::SetCommandResponse& res);
 
 void pubMarkers(const lifelong_backend::KeyFrameInfo<PointT>& info);
 void keyframeCallback(const lwio::keyframe_info& info);
@@ -100,6 +102,7 @@ void InitComm(ros::NodeHandle& private_nh, ros::NodeHandle& nh) {
     set_space_server = private_nh.advertiseService("/SetSpace", &SetSpaceService);
     save_traj_server = private_nh.advertiseService("/SaveTraj", &SaveTrajService);
     set_traj_server = private_nh.advertiseService("/SetTraj", &SetTrajService);
+    set_workMode_server = private_nh.advertiseService("/SetWorkMode", &SetWorkMode);
     keyframe_sub = private_nh.subscribe("/keyframe_info", 1000, &keyframeCallback,
         ros::TransportHints().tcpNoDelay());
     getWorkSpace_sub = private_nh.subscribe("/getWorkSpace", 10, &getWorkSpaceCallback,
@@ -147,6 +150,20 @@ bool SaveTrajService(lifelong_backend::SaveTrajRequest& req, lifelong_backend::S
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 bool SetTrajService(lifelong_backend::SetTrajRequest& req, lifelong_backend::SetTrajResponse& res) {
     res.success = backend_->SetTrajectory(req.traj_id); 
+    return true;  
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+bool SetWorkMode(lifelong_backend::SetCommandRequest& req, lifelong_backend::SetCommandResponse& res) {
+    std::cout << "SetWorkMode" << std::endl;
+    // 校验是否为设置模式命令
+    res.success = 0; 
+    if (req.type != 1) {
+        return false;  
+    }
+    res.success = backend_->SetWorkMode(req.cmd);
+
+    std::cout  << "res.success: " << (int)res.success << std::endl;
     return true;  
 }
 
