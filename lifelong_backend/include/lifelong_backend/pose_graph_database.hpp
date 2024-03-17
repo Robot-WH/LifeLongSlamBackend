@@ -46,15 +46,17 @@ public:
      * @brief: 保存数据
      * @details pose-graph的数据 保存在 session 中  
      */            
-    void Save(const uint16_t& traj) {   
+    void Save() {   
         // 保存keyframe信息 
         assert(database_save_path_ != ""); 
         std::cout << "database_save_path_: " << database_save_path_ << std::endl;
         SlamLib::time::TicToc tt;
         // 保存pose-graph
         // 节点
-        for (auto& item : traj_vertex_map_[traj]) {
-            item.Save(database_save_path_); 
+        for (const auto& item : traj_vertex_map_) {
+            for (const auto& vertex : item.second) {
+                vertex.Save(database_save_path_); 
+            }
         }
         tt.toc("save vertex ");
         // for (uint64_t i = 0; i < vertex_container_.size(); i++) {
@@ -62,9 +64,14 @@ public:
         // }
         tt.tic();  
         // 边
-        for (uint64_t i = 0; i < traj_edge_map_[traj].size(); i++) {
-            traj_edge_map_[traj][i].Save(database_save_path_);  
+        for (const auto& item : traj_edge_map_) {
+            for (const auto& edge : item.second) {
+                edge.Save(database_save_path_); 
+            }
         }
+        // for (uint64_t i = 0; i < traj_edge_map_[traj].size(); i++) {
+        //     traj_edge_map_[traj][i].Save(database_save_path_);  
+        // }
         tt.toc("save edge ");
         // 更新info文件
         std::ofstream ofs(database_save_path_ + "/info");
@@ -84,6 +91,7 @@ public:
         assert(database_save_path_ != ""); 
         // 读取当前area的Info
         std::ifstream ifs(database_save_path_ + "/info");
+        DataReset(); 
             
         if(!ifs) {
             std::cout << "开启第一个轨迹..." << std::endl;
@@ -151,39 +159,7 @@ public:
                 continue;
             }
             index++;  
-            // std::ifstream ifs(database_save_path_ + "/Vertex/id_" + std::to_string(index));
-
-            // if(!ifs) {
-            //     index++;  
-            //     continue;
-            // }
-
-            // index++;  
-            // // 读取该结点的信息
-            // while(!ifs.eof()) {
-            //     std::string token;
-            //     ifs >> token;
-
-            //     if (token == "id") {
-            //         ifs >> vertex.id_; 
-            //         //std::cout<<"vertex.id: "<<vertex.id_<<std::endl;
-            //     } else if (token == "pose") {
-            //         Eigen::Matrix4d matrix; 
-
-            //         for(int i = 0; i < 4; i++) {
-            //             for(int j = 0; j < 4; j++) {
-            //                 ifs >> matrix(i, j);
-            //             }
-            //         }
-                    
-            //         vertex.pose_.translation() = matrix.block<3, 1>(0, 3);
-            //         vertex.pose_.linear() = matrix.block<3, 3>(0, 0);
-            //         //std::cout<<"vertex.pose_: "<<vertex.pose_.matrix()<<std::endl;
-            //     } else if (token == "traj") {
-            //         ifs >> vertex.traj_; 
-            //     }
-            // }
-
+            
             database_vertex_info_.emplace_back(vertex.traj_, traj_vertex_map_[vertex.traj_].size()); 
             vertex_localIndex[vertex.id_] = traj_vertex_map_[vertex.traj_].size();  
             traj_vertex_map_[vertex.traj_].push_back(vertex); 
@@ -239,12 +215,6 @@ public:
         ++info_.session_cnt;
         return info_.session_cnt - 1;
     }
-
-
-    /**
-     * @brief 添加一个关键帧的数据
-     * @param  keyframe  关键帧
-     */
 
     /**
      * @brief 
@@ -410,7 +380,9 @@ public:
      */
     uint64_t GetTrajectorVertexNum(uint16_t traj) {
         database_mt_.lock_shared();
+        std::cout << "GetTrajectorVertexNum" << std::endl;
         uint64_t num = traj_vertex_map_[traj].size();
+        std::cout << "num: " << num << std::endl;
         database_mt_.unlock_shared();
         return num;  
     }
@@ -498,7 +470,7 @@ public:
     Vertex GetVertexByTrajectoryLocalIndex(const uint16_t& traj, const uint64_t& index) const {
         // uint64_t database_idx = traj_vertexDatabaseIndex_map_.at(traj)[index];  
         // return vertex_database_[database_idx];
-        std::cout << "GetVertexByTrajectoryLocalIndex" << std::endl;
+        std::cout << "GetVertexByTrajectoryLocalIndex, index: " << index << std::endl;
         return traj_vertex_map_.at(traj)[index];  
     }
 
@@ -945,12 +917,10 @@ public:
                 info.second += source_traj_size;
             }
         }
-
         for (auto& edge : traj_edge_map_[target_traj]) {
             edge.traj_ = source_traj; 
             edge.link_head_local_index_ += source_traj_size;
         }
-
         traj_edge_map_[source_traj].insert(traj_edge_map_[source_traj].end(), 
                                                                                 traj_edge_map_[target_traj].begin(),
                                                                                 traj_edge_map_[target_traj].end());
@@ -977,29 +947,6 @@ public:
         (*keyframePositionCloud)[index].z = pose.translation().z();
     }
 
-    
-    /**
-     * @brief 
-     * 
-     * @param id 
-     * @param correct_pose 
-     */
-    // inline void UpdateVertexPose(uint32_t id, Eigen::Isometry3d correct_pose) {
-    //     boost::unique_lock<boost::shared_mutex> lock1(database_mt_);    // 写锁 
-    //     boost::unique_lock<boost::shared_mutex> lock2(pose_cloud_mt_);    // 写锁 
-    //     vertex_container_[id].SetPose(correct_pose);  // 节点 位姿更新  
-    //     // 位姿点云更新   
-    //     cloudKeyFramePosition3D_->points[id].x = correct_pose.translation().x();
-    //     cloudKeyFramePosition3D_->points[id].y = correct_pose.translation().y();
-    //     cloudKeyFramePosition3D_->points[id].y = correct_pose.translation().y();
-        
-    //     Eigen::Quaterniond q(correct_pose.rotation());
-    //     cloudKeyFrameRot3D_->points[id].x = q.x();
-    //     cloudKeyFrameRot3D_->points[id].y = q.y();
-    //     cloudKeyFrameRot3D_->points[id].z = q.z();
-    //     cloudKeyFrameRot3D_->points[id].intensity = q.w();   
-    // }
-
     /**
      * @brief 
      * 
@@ -1007,11 +954,12 @@ public:
     void DataReset() {
         cloudKeyFramePosition3D_->clear();
         cloudKeyFrameRot3D_->clear();
-        keyframe_database_.clear();
-        edge_container_.clear();
-        vertex_container_.clear(); 
+        database_vertex_info_.clear();
+        traj_keyframePositionCloud_.clear();
+        traj_vertex_map_.clear();
+        traj_edge_map_.clear(); 
+        traj_vertexDatabaseIndex_map_.clear(); 
     }
-
 protected:
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     PoseGraphDataBase() {
@@ -1026,7 +974,6 @@ protected:
 
     PoseGraphDataBase(PoseGraphDataBase const& object) {}
     PoseGraphDataBase(PoseGraphDataBase&& object) {}
-
 private:
     Info info_;
     bool has_new_keyframe_ = false; 

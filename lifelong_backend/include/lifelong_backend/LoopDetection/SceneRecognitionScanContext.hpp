@@ -149,19 +149,6 @@ public:
                 std::cerr << "sc_proto Failed to write Ostream. index: " << i << std::endl;
                 continue;
             }
-            // // ofstream 文件输出流  用于向文件输出数据   
-            // std::ofstream ofs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(i));
-            // ofs << "sc_desc\n";
-            // ofs << polarcontexts_sc_[i];
-            // // if (i == 1) 
-            // //     std::cout<<"polarcontexts_sc_[1]: "<<std::endl<<polarcontexts_sc_[i]<<std::endl;
-            // ofs << "\nringkey_desc\n";
-
-            // for (uint16_t k = 0; k < polarcontext_ringkeys_vec_[i].size(); k++) {
-            //     ofs << polarcontext_ringkeys_vec_[i][k] << " ";
-            //     // if (i == 1) 
-            //     //     std::cout<<"polarcontext_ringkeys_vec_[1]: "<<polarcontext_ringkeys_vec_[i][k]<<" "<<std::endl;
-            // }
         }
         tt.toc("save scan-context ");
         return true; 
@@ -220,41 +207,6 @@ public:
             }
 
             polarcontext_ringkeys_vec_.push_back(std::move(ring));
-
-            // // ifstream 文件输入流  用于向文件输入数据    
-            // std::ifstream ifs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(index));
-           
-            // if(!ifs) {
-            //     break;
-            // }
-
-            // index++;  
-
-            // while(!ifs.eof()) {
-            //     std::string token;
-            //     ifs >> token;
-
-            //     if(token == "sc_desc") {
-            //         Eigen::MatrixXd sc = Eigen::MatrixXd::Zero(ring_num, sector_num);
-            //         for(int i = 0; i < ring_num; i++) {
-            //             for(int j = 0; j < sector_num; j++) {
-            //                 ifs >> sc(i, j);
-            //             }
-            //         }
-
-            //         polarcontexts_sc_.push_back(std::move(sc));
-            //         // std::cout<<"sc_desc: "<<std::endl<<sc<<std::endl;
-            //     } else if (token == "ringkey_desc") {
-            //         std::vector<float> ring(ring_num, 0);
-            //         // std::cout<<"ring: "<<std::endl;
-            //         for(int j = 0; j < ring_num; j++) {
-            //             ifs >> ring[j];
-            //             // std::cout<<ring[j]<<std::endl;
-            //         }
-
-            //         polarcontext_ringkeys_vec_.push_back(std::move(ring));
-            //     }        
-            // }
         }
 
         tt.toc("load scan-context ");
@@ -267,17 +219,17 @@ public:
         // 构建KDTREE
         tt.tic();  
         polarcontext_ringkeys_to_search_.clear();
-            // 构造用于建立kdtree的历史ringkey集合     
-            // 这里减去 NUM_EXCLUDE_RECENT_ 也就是 不考虑最近的若干帧 
-            polarcontext_ringkeys_to_search_.assign( // [first，end)
-                polarcontext_ringkeys_vec_.begin(), 
-                polarcontext_ringkeys_vec_.end());  // end() 指向 最后一个元素的后一个
-            // KDTreeVectorOfVectorsAdaptor<>的 unique_ptr 
-            polarcontext_ringkey_tree_.reset(
-                new ringKeyKdtree(sc_.GetRingNum() ,// ring的维度 例如20     
-                                                            polarcontext_ringkeys_to_search_, 
-                                                            // 最后结点的最大叶子数   即kdtree最后一个结点包含元素的最大个数
-                                                            10 )); 
+        // 构造用于建立kdtree的历史ringkey集合     
+        // 这里减去 NUM_EXCLUDE_RECENT_ 也就是 不考虑最近的若干帧 
+        polarcontext_ringkeys_to_search_.assign( // [first，end)
+            polarcontext_ringkeys_vec_.begin(), 
+            polarcontext_ringkeys_vec_.end());  // end() 指向 最后一个元素的后一个
+        // KDTreeVectorOfVectorsAdaptor<>的 unique_ptr 
+        polarcontext_ringkey_tree_.reset(
+            new ringKeyKdtree(sc_.GetRingNum() ,// ring的维度 例如20     
+                                                        polarcontext_ringkeys_to_search_, 
+                                                        // 最后结点的最大叶子数   即kdtree最后一个结点包含元素的最大个数
+                                                        10 )); 
         tt.toc("build scan-context kdtree ");
         LOG(INFO) << SlamLib::color::GREEN << "位置识别数据库加载完成!"<< SlamLib::color::RESET;
 

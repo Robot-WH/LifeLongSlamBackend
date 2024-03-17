@@ -171,6 +171,7 @@ Eigen::Isometry3d trans_odom2map = Eigen::Isometry3d::Identity();
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void getWorkSpaceCallback(const std_msgs::Bool& flag) {
+    std::cout << "getWorkSpaceCallback" << std::endl;
     // 读取数据库内所有地图空间的名字  并发送信息
     DIR* dir_p = nullptr;
     struct dirent* dir_entry = nullptr;

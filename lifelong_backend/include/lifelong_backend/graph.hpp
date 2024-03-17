@@ -62,7 +62,7 @@ struct Vertex {
      * 
      * @param path 
      */
-    void Save(std::string const& path) {
+    void Save(std::string const& path) const {
         if (!boost::filesystem::is_directory(path)) {
             // std::cout << "Save, path: " << path << std::endl;
             boost::filesystem::create_directory(path);
@@ -78,14 +78,7 @@ struct Vertex {
         lifelong_backend::graph::proto::Vertex vertex;
         vertex.set_traj(traj_);
         vertex.set_id(id_);
-        // lifelong_backend::transform::proto::Transform3d* pose(new lifelong_backend::transform::proto::Transform3d);
-        // lifelong_backend::transform::proto::Vector3d* translation(new lifelong_backend::transform::proto::Vector3d);
-        // lifelong_backend::transform::proto::Quaterniond* Quaterniond(new lifelong_backend::transform::proto::Quaterniond);
-        // *translation = ToProto(pose_.translation());
-        // *Quaterniond = ToProto(Eigen::Quaterniond(pose_.rotation()));
-        // pose->set_allocated_translation(translation);
-        // pose->set_allocated_rotation(Quaterniond);
-        // vertex.set_allocated_pose(pose);
+
         const auto& m_pose = pose_.matrix();  
         vertex.add_pose(m_pose(0, 0)); 
         vertex.add_pose(m_pose(0, 1)); 
@@ -181,20 +174,10 @@ struct Edge {
      * 
      * @param path 
      */
-    void Save(std::string const& path) {
+    void Save(std::string const& path) const {
         if (!boost::filesystem::is_directory(path)) {
           boost::filesystem::create_directory(path);
         }
-
-        // std::ofstream ofs(path + "/Edge/id_" + std::to_string(id_));
-        // ofs << "traj " << traj_ << "\n";
-        // ofs << "id " << id_ << "\n";
-        // ofs << "link_head " << link_id_.first << "\n";
-        // ofs << "link_tail " << link_id_.second << "\n";
-        // ofs << "constraint\n";
-        // ofs << constraint_.matrix()<<"\n";
-        // ofs << "noise\n";
-        // ofs << noise_.matrix()<<"\n";
 
         std::fstream ofs(path + "/Edge/id_" + std::to_string(id_), 
             std::ios::out | std::ios::trunc | std::ios::binary);

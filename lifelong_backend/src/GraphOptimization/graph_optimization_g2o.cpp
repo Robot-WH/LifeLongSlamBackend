@@ -63,7 +63,8 @@ void G2oGraphOptimizer::Rebuild(std::vector<Vertex> const& vertexs,
         AddSe3Edge(edge.link_id_.first, edge.link_id_.second, edge.constraint_, edge.noise_);  
     }
 
-    Optimize();
+    // Optimize();
+    return;  
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

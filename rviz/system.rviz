@@ -4,11 +4,7 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /Global Options1
-        - /TF1
-        - /MarkerArray1
         - /MarkerArray1/Namespaces1
-        - /PointCloud21
         - /PointCloud22
         - /PointCloud23
       Splitter Ratio: 0.5
@@ -31,7 +27,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: PointCloud2
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -62,13 +58,38 @@ Visualization Manager:
       Frame Timeout: 50
       Frames:
         All Enabled: true
+        base:
+          Value: true
+        base_link:
+          Value: true
+        camera_color_left:
+          Value: true
+        camera_color_right:
+          Value: true
+        camera_gray_left:
+          Value: true
+        camera_gray_right:
+          Value: true
+        imu_link:
+          Value: true
+        map:
+          Value: true
+        odom:
+          Value: true
+        velo_link:
+          Value: true
+        world:
+          Value: true
       Marker Scale: 5
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: true
       Tree:
-        {}
+        map:
+          odom:
+            base:
+              {}
       Update Interval: 0
       Value: true
     - Class: rviz/MarkerArray
@@ -76,7 +97,9 @@ Visualization Manager:
       Marker Topic: /graph_markers
       Name: MarkerArray
       Namespaces:
-        {}
+        Odom Error: true
+        edges: true
+        nodes: true
       Queue Size: 100
       Value: true
     - Alpha: 1
@@ -253,8 +276,8 @@ Visualization Manager:
       Queue Size: 1
       Selectable: true
       Size (Pixels): 1
-      Size (m): 0.009999999776482582
-      Style: Points
+      Size (m): 0.05000000074505806
+      Style: Flat Squares
       Topic: /filtered_local_map
       Unreliable: false
       Use Fixed Frame: true
@@ -317,7 +340,7 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Angle: -1.5799992084503174
+      Angle: -1.4299994707107544
       Class: rviz/TopDownOrtho
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
@@ -327,11 +350,11 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 19.076894760131836
+      Scale: 13.35428237915039
       Target Frame: base
       Value: TopDownOrtho (rviz)
-      X: -8.316818237304688
-      Y: -14.738785743713379
+      X: 63.5251579284668
+      Y: 12.055107116699219
     Saved: ~
 Window Geometry:
   Displays:
@@ -351,5 +374,5 @@ Window Geometry:
   Views:
     collapsed: true
   Width: 1123
-  X: 53
-  Y: 28
+  X: 337
+  Y: 89
