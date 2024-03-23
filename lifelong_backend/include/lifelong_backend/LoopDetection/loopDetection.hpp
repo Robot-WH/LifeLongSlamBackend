@@ -141,7 +141,7 @@ public:
         }
         rough_registration_->SetInputTarget(scan_in);
         res.second = loop_vertex.pose_ * res.second;  
-        // 回环first的点云
+        // 进行粗匹配
         if (!rough_registration_->Solve(res.second)) {
             reloc_res.traj_id_ = -1;
             return reloc_res; 
@@ -262,7 +262,6 @@ public:
     int HistoricalPositionSearch(const uint16_t& traj, pcl::PointXYZ const& pos, double const& max_search_dis,
                                                                 uint16_t const& max_search_num, std::vector<int>& search_ind,
                                                                 std::vector<float>& search_dis) {   
-        // std::cout << "11111111111, curr_trajectory_id_: " << curr_trajectory_id_ << std::endl;
         // 如果目标搜索轨迹  与 当前模块的加载轨迹不一致  那么要重新加载轨迹数据库
         if (traj != curr_trajectory_id_) {
             // 变化则要更新位姿搜索kdtree 
@@ -270,20 +269,15 @@ public:
                 PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud(traj);  
             kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
             last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
-            // std::cout << "last_keyframe_position_kdtree_size_: " << last_keyframe_position_kdtree_size_ << std::endl;
             curr_trajectory_id_ = traj;  
         } else if (last_keyframe_position_kdtree_size_ != 
                 PoseGraphDataBase::GetInstance().GetTrajectorVertexNum(curr_trajectory_id_)) {  
-            // std::cout << "last_keyframe_position_kdtree_size_: " << last_keyframe_position_kdtree_size_ << std::endl;
             pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
                 PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud(curr_trajectory_id_);  
-            // std::cout << "keyframe_position_cloud size: " << keyframe_position_cloud->size() << std::endl;
             kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
             last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
         }
-        // std::cout << "22222222222222" << std::endl;
-        if (max_search_dis <= 0) {
-            // KNN搜索
+        if (max_search_dis <= 0) {  // knn
             return kdtreeHistoryKeyPoses->nearestKSearch(pos, max_search_num, search_ind, search_dis); 
         }
         // 在历史关键帧中查找与当前关键帧距离小于阈值的集合  

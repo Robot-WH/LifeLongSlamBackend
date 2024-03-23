@@ -166,8 +166,10 @@ uint8_t LifeLongBackEndOptimization<_FeatureT>::SetWorkMode(uint16_t cmd) {
             if (enable_lifelong_) {
                 enable_lifelong_ = false; 
             }
-            // 重新开始建立一条独立的轨迹
-            trajectory_ = PoseGraphDataBase::GetInstance().CreateNewSession(); 
+            // 如果当前轨迹有数据，那么重新开始建立一条独立的轨迹
+            if (PoseGraphDataBase::GetInstance().GetTrajectorVertexNum(trajectory_)) {
+                trajectory_ = PoseGraphDataBase::GetInstance().CreateNewSession(); 
+            }
         }
     }
     return 1; 
