@@ -45,7 +45,6 @@ private:
     using SourceT = std::pair<std::string, PointCloudConstPtr>;     // 匹配源类型    <id, 数据>
     using RegistrationPtr = typename SlamLib::pointcloud::RegistrationBase<_FeatureT>::Ptr;   
 public:
-
     LifeLongBackEndOptimization(std::string config_path);
 
     /**
@@ -83,16 +82,17 @@ public:
     void ForceGlobalOptimaze() override;
 
 protected:
-
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
-     * @brief: 建图模式下将数据传输到其他模块
-     * @param keyframe 关键帧数据
-     * @param pointcloud_data 关键帧对应的点云
-     */            
-    void DataFurtherProcess(uint64_t const& id, SlamLib::FeaturePointCloudContainer<_FeatureT> pointcloud_data);
-    
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+     * @brief 
+     * 
+     * @param traj 
+     * @param points_name 
+     * @param resolution 
+     * @return true 
+     * @return false 
+     */
+    bool buildGlobalMap(const uint16_t& traj, const std::string& points_name, const float& resolution);
+
     /**
      * @brief: 定位线程
      * @details 1、通过位姿点云查找距离当前帧最近的历史关键帧
@@ -131,7 +131,6 @@ private:
     uint64_t id_ = 0;
     uint64_t start_id_ = 0;
     uint16_t trajectory_ = 0;   
-
     // 回环模块 
     std::unique_ptr<LoopDetection<_FeatureT>> loop_detect_;  
     // 优化器
@@ -147,5 +146,6 @@ private:
     WorkMode work_mode_; 
     Eigen::Isometry3d last_keyframe_odom_;  
     KeyFrame last_add_database_keyframe_;
+    typename pcl::PointCloud<_FeatureT>::Ptr global_map_;
 }; // class 
 } // namespace 

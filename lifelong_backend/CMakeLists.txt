@@ -52,7 +52,6 @@ target_include_directories(lifelong_backend_proto PUBLIC
 
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)  
 
-
 add_library(lifelong_backend SHARED
     src/backend_lifelong.cpp
     src/GraphOptimization/graph_optimization_gtsam.cpp 

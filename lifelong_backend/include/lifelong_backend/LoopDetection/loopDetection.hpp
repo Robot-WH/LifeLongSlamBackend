@@ -129,7 +129,7 @@ public:
         // 将粗匹配所需要的点云local map 提取出来 
         for (auto const& name : rough_registration_specific_labels_) {   
             // 从数据库中查找 名字为 name 的点云 
-            PointCloudConstPtr local_map(new pcl::PointCloud<_PointType>());
+            PointCloudPtr local_map(new pcl::PointCloud<_PointType>());
             if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
                 LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,name: "
                     << name << SlamLib::color::RESET;
@@ -149,11 +149,9 @@ public:
         // 细匹配
         // 将细匹配所需要的点云local map 提取出来 
         for (auto const& name : refine_registration_specific_labels_) {
-            PointCloudConstPtr local_map(new pcl::PointCloud<_PointType>());
             // 如果 细匹配所需要的local map 在之前粗匹配时  已经提取了
-            if (localmaps.find(name) != localmaps.end()) {
-                local_map = localmaps[name];  
-            } else {
+            if (localmaps.find(name) == localmaps.end()) {
+                PointCloudPtr local_map(new pcl::PointCloud<_PointType>());
                 if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
                     LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,name: "
                         << name << SlamLib::color::RESET;
@@ -162,7 +160,7 @@ public:
                 }
                 localmaps[name] = local_map; 
             }
-            refine_registration_->SetInputSource(std::make_pair(name, local_map));  
+            refine_registration_->SetInputSource(std::make_pair(name, localmaps[name]));  
         }
         refine_registration_->SetInputTarget(scan_in);
         if (!refine_registration_->Solve(res.second)) {
@@ -170,19 +168,19 @@ public:
             return reloc_res; 
         }
         // step3 检验   
-        PointCloudConstPtr local_map(new pcl::PointCloud<_PointType>());
         std::string required_name = "filtered";    // 获取检验模块需要的点云标识名
-        if (localmaps.find(required_name) != localmaps.end()) {
-            local_map = localmaps[required_name];  
-        } else {  // 如果之前没有构造出 POINTS_PROCESSED_NAME 的local map 那么这里构造
+        if (localmaps.find(required_name) == localmaps.end()) {
+            PointCloudPtr local_map(new pcl::PointCloud<_PointType>());
             if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, required_name, local_map)) {
                 LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,name: "
                     << required_name << SlamLib::color::RESET;
                 reloc_res.traj_id_ = -1;
                 return reloc_res; 
             }
+            localmaps[required_name] = local_map; 
         }
-        align_evaluator_.SetTargetPoints(local_map); 
+        align_evaluator_.SetTargetPoints(localmaps[required_name]); 
+        
         std::pair<double, double> eva = align_evaluator_.AlignmentScore(
             scan_in.at(required_name), res.second.matrix().cast<float>(), 0.2, 0.8); 
         tt.toc("Relocalization ");
@@ -243,14 +241,6 @@ public:
      */
     void Load(std::string const& path, const uint64_t& max_index) {
         scene_recognizer_.Load(path, max_index);   // 场景识别模块加载数据
-        // pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud;
-        // keyframe_position_cloud = PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud();
-        
-        // if (!keyframe_position_cloud->empty()) {
-        //     kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
-        //     LOG(INFO) << SlamLib::color::GREEN << "位置点云KDTREE初始化完成! 数量：" << 
-        //         keyframe_position_cloud->size() << SlamLib::color::RESET;
-        // }
     }
 
     /**
@@ -297,10 +287,10 @@ public:
      */
     bool ConstructLocalmapByTrajectoryNode(uint16_t traj, std::vector<int> const& search_ind,
                                                                                                 std::string const& points_name, 
-                                                                                                PointCloudConstPtr& local_map) {
+                                                                                                PointCloudPtr& local_map) {
         pcl::PointCloud<_PointType> origin_points;   // 激光坐标系下的点云
         pcl::PointCloud<_PointType> trans_points;   // 转换到世界坐标系下的点云 
-        PointCloudPtr map(new pcl::PointCloud<_PointType>()); 
+        local_map->clear();  
         // 遍历每一个index的结点
         for (const int& idx : search_ind) {
             Vertex vertex = PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(traj, idx);
@@ -308,11 +298,11 @@ public:
                 return false;
             }
             pcl::transformPointCloud (origin_points, trans_points, vertex.pose_.matrix()); // 转到世界坐标  
-            *map += trans_points; 
+            *local_map += trans_points; 
         }
-        local_map = map;  
         return true;  
     }
+
 protected:
     /**
      * @brief 回环检测线程 
@@ -525,7 +515,7 @@ protected:
                 // 这里允许 匹配使用多种特征点云  
                 for (auto const& name : rough_registration_specific_labels_) {   
                     // local map 
-                    typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
+                    typename pcl::PointCloud<_PointType>::Ptr local_map(new pcl::PointCloud<_PointType>());
                     // std::cout << "粗匹配提取点云,name: " << name << std::endl;
                     if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
                         continue;  
@@ -552,17 +542,15 @@ protected:
                  */
                 // 将细匹配所需要的点云提取出来 
                 for (auto const& name : refine_registration_specific_labels_) {
-                    typename pcl::PointCloud<_PointType>::ConstPtr local_map(new pcl::PointCloud<_PointType>());
                     // 如果 细匹配所需要的local map 在之前粗匹配时  已经提取了   那么直接用原数据
-                    if (localmaps.find(name) != localmaps.end()) {
-                        local_map = localmaps[name];  
-                    } else {
+                    if (localmaps.find(name) == localmaps.end()) {
+                        typename pcl::PointCloud<_PointType>::Ptr local_map(new pcl::PointCloud<_PointType>());
                         if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
                             continue;  
                         }
                         localmaps[name] = local_map; 
                     }
-                    refine_registration_->SetInputSource(std::make_pair(name, local_map));  
+                    refine_registration_->SetInputSource(std::make_pair(name, localmaps[name]));  
                     // 如果 细匹配所需要的 curr_data 不存在  则构造
                     if (curr_scans.find(name) == curr_scans.end()) {
                         typename pcl::PointCloud<_PointType>::Ptr curr_scan(new pcl::PointCloud<_PointType>());
@@ -580,16 +568,17 @@ protected:
                     continue; 
                 }
                 // 对细匹配进行评估
-                typename pcl::PointCloud<_PointType>::ConstPtr evaluative_local_map(new pcl::PointCloud<_PointType>());
                 // 使用标识名为evaluative_pointcloud_label_的点云进行评估  
                 if (localmaps.find(evaluative_pointcloud_label_) != localmaps.end()) {
-                    evaluative_local_map = localmaps[evaluative_pointcloud_label_];  
+                    align_evaluator_.SetTargetPoints(localmaps[evaluative_pointcloud_label_]); 
                 } else {  
+                    typename pcl::PointCloud<_PointType>::Ptr evaluative_local_map(new pcl::PointCloud<_PointType>());
                     if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, evaluative_pointcloud_label_, evaluative_local_map)) {
                         continue;  
                     }
+                    align_evaluator_.SetTargetPoints(evaluative_local_map); 
                 }
-                align_evaluator_.SetTargetPoints(evaluative_local_map); 
+                
                 typename pcl::PointCloud<_PointType>::ConstPtr evaluative_curr_scan(
                     new pcl::PointCloud<_PointType>());
                 // 用于检验的当前点云
@@ -605,6 +594,7 @@ protected:
                     }
                     evaluative_curr_scan = evaluative_curr_scan_temp;  
                 }
+                
                 std::pair<double, double> eva = align_evaluator_.AlignmentScore(
                     evaluative_curr_scan, 
                     res.second.matrix().cast<float>(), 

@@ -15,7 +15,8 @@
 namespace lifelong_backend {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 template<typename _FeatureT>
-LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string config_path) {
+LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string config_path)
+    : global_map_(new pcl::PointCloud<_FeatureT>) {
     YAML::Node yaml = YAML::LoadFile(config_path);
     std::string optimizer_type = yaml["optimizer"]["type"].as<std::string>();
 
@@ -103,8 +104,9 @@ void LifeLongBackEndOptimization<_FeatureT>::SaveGlobalMap(float resolution, std
     option.mode_ = "VoxelGrid";
     option.voxel_grid_option_.resolution_ = resolution;
     SlamLib::pointcloud::VoxelGridFilter<_FeatureT> voxel_filter(option);
-    typename pcl::PointCloud<_FeatureT>::Ptr cloud_out = voxel_filter.Filter(global_map); 
-    pcl::io::savePCDFileBinary(save_path + "/global_map.pcd", *cloud_out);
+    voxel_filter.Filter(global_map); 
+    pcl::io::savePCDFileBinary(save_path + "/global_map.pcd", *global_map);
+    return;  
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -131,6 +133,37 @@ bool LifeLongBackEndOptimization<_FeatureT>::SetTrajectory(uint16_t traj_id) {
     keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_); 
     IPC::Server::Instance().Publish("keyframes_info", keyframe_info); 
     std::cout << "vertex_database_ size: " << keyframe_info.vertex_database_.size() << std::endl;
+    // 更新全局地图  
+    buildGlobalMap(trajectory_, "filtered", 0.2);
+    // IPC::Server::Instance().Publish("global_map", global_map_);   // 发布地图
+    return true;  
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+template<typename _FeatureT>
+bool LifeLongBackEndOptimization<_FeatureT>::buildGlobalMap(const uint16_t& traj, const std::string& points_name,
+                                                                                                                                            const float& resolution) {
+    const auto& traj_vertexs = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(traj); 
+    pcl::PointCloud<_FeatureT> origin_points;   // 激光坐标系下的点云
+    pcl::PointCloud<_FeatureT> trans_points;   // 转换到世界坐标系下的点云 
+    global_map_->clear();  
+
+    for (const auto& vertex : traj_vertexs) {
+        if (!PoseGraphDataBase::GetInstance().GetKeyFramePointCloud(points_name, vertex.id_, origin_points)) {
+            return false;
+        }
+        pcl::transformPointCloud (origin_points, trans_points, vertex.pose_.matrix()); // 转到世界坐标  
+        *global_map_ += trans_points;  
+    }
+    std::cout << "滤波前 global map size: " << global_map_->size() << std::endl;
+    // 对global_map进行滤波
+    SlamLib::pointcloud::FilterOption::VoxelGridFilterOption option;
+    option.mode_ = "VoxelGrid";
+    option.voxel_grid_option_.resolution_ = resolution;
+    SlamLib::pointcloud::VoxelGridFilter<_FeatureT> voxel_filter(option);
+    voxel_filter.Filter(global_map_); 
+    std::cout << "滤波后 global map size: " << global_map_->size() << std::endl;
+    // pcl::io::savePCDFileBinary("/home/lwh/global_map.pcd", *global_map_);
     return true;  
 }
 
@@ -239,6 +272,7 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
     last_keyframe_odom_ = odom;    
     this->new_keyframe_queue_.push_back(keyframe);     
     this->new_keyframe_points_queue_.push_back(lidar_data.pointcloud_data_); 
+    // IPC::Server::Instance().Publish("global_map", global_map_);   // 发布地图
     // 如果是建图阶段   则需要发布图优化相关数据   供其他模块使用    
     if (work_mode_ != WorkMode::MAPPING) {
         return;  
@@ -322,13 +356,13 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                 // 遍历定位所需的所有点云标识名   将定位所需要的点云local map 提取出来 
                 for (auto const& name : localize_registration_->GetUsedPointsName()) {   
                     // 从数据库中查找 名字为 name 的点云 
-                    PointCloudConstPtr local_map(new pcl::PointCloud<_FeatureT>());
+                    PointCloudPtr local_map(new pcl::PointCloud<_FeatureT>());
                     if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, name, local_map)) {
                         work_mode_ = WorkMode::RELOCALIZATION;
                         continue; 
                     }
                     // std::cout << "before filter size: " << local_map->size() << std::endl;
-                    local_map = downsample.Filter(local_map); 
+                    downsample.Filter(local_map); 
                     // std::cout << "after filter size: " << local_map->size() << std::endl;
                     localize_registration_->SetInputSource(std::make_pair(name, local_map)); 
                     loc_points.map_[name] = local_map; 
@@ -363,7 +397,7 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                     evaluate_local_map = loc_points.map_[required_name];  
                 } else {  
                     // 没有所需要的地图数据则进行构建
-                    typename pcl::PointCloud<_FeatureT>::ConstPtr local_map(new pcl::PointCloud<_FeatureT>());
+                    typename pcl::PointCloud<_FeatureT>::Ptr local_map(new pcl::PointCloud<_FeatureT>());
                     if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, required_name, local_map)) {
                         work_mode_ = WorkMode::RELOCALIZATION;
                         continue; 

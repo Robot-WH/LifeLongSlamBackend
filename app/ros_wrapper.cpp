@@ -38,6 +38,7 @@ std::vector<ros::Publisher> pubLocalMapSurf;    // 发布每个激光提取的�
 ros::Publisher markers_pub; // 可视化
 ros::Publisher odom_to_map_pub;   
 ros::Publisher localizeMap_pub;  
+ros::Publisher globalMap_pub;
 ros::Publisher workspace_pub;  
 ros::ServiceServer save_data_server;   // 数据保存服务
 ros::ServiceServer save_map_server;  // 地图保存服务 
@@ -74,7 +75,8 @@ void pubMarkers(const lifelong_backend::KeyFrameInfo<PointT>& info);
 void keyframeCallback(const lwio::keyframe_info& info);
 void getWorkSpaceCallback(const std_msgs::Bool& flag);
 void pubOdomToMap(const Eigen::Isometry3d& odom_to_map);
-void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map);  
+void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map);     
+void pubGlobalMap(const pcl::PointCloud<PointT>::ConstPtr& map);
 
 void InitComm(ros::NodeHandle& private_nh, ros::NodeHandle& nh) {
     // for (uint16_t i = 0; i < NUM_OF_LIDAR; i++)
@@ -96,6 +98,7 @@ void InitComm(ros::NodeHandle& private_nh, ros::NodeHandle& nh) {
     markers_pub = private_nh.advertise<visualization_msgs::MarkerArray>("/graph_markers", 10);        // 可视化
     odom_to_map_pub = private_nh.advertise<nav_msgs::Odometry>("/odom_to_map", 10);   
     localizeMap_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/localize_map", 10);   
+    globalMap_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/global_map", 1);   
     workspace_pub = nh.advertise<lifelong_backend::workspace_info>("/workspace", 10);   
     save_data_server = private_nh.advertiseService("/SaveData", &SaveDataService);
     save_map_server = private_nh.advertiseService("/SaveMap", &SaveMapService);
@@ -110,7 +113,8 @@ void InitComm(ros::NodeHandle& private_nh, ros::NodeHandle& nh) {
     // 进程内通信
     IPC::Server::Instance().Subscribe("keyframes_info", &pubMarkers);  
     IPC::Server::Instance().Subscribe("odom_to_map", &pubOdomToMap);  
-    IPC::Server::Instance().Subscribe("localize_map", &pubLocalizeMap);  
+    IPC::Server::Instance().Subscribe("localize_map", &pubLocalizeMap);   
+    IPC::Server::Instance().Subscribe("global_map", &pubGlobalMap);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -430,9 +434,6 @@ void pubOdomToMap(const Eigen::Isometry3d& odom_to_map) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/**
- * @brief 发布定位点云可视化 
-*/
 void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map) {
     sensor_msgs::PointCloud2 laserCloudTemp;
     if (localizeMap_pub.getNumSubscribers() != 0) {
@@ -441,6 +442,18 @@ void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map) {
         laserCloudTemp.header.frame_id = "map";
         localizeMap_pub.publish(laserCloudTemp);
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void pubGlobalMap(const pcl::PointCloud<PointT>::ConstPtr& map) {
+    std::cout << "-----------------------------------------------------------------pubGlobalMap" << std::endl;
+    // sensor_msgs::PointCloud2 laserCloudTemp;
+    // if (globalMap_pub.getNumSubscribers() != 0) {
+    //     // pcl::toROSMsg(*map, laserCloudTemp);
+    //     // laserCloudTemp.header.stamp = ros::Time::now();;
+    //     // laserCloudTemp.header.frame_id = "map";
+    //     // globalMap_pub.publish(laserCloudTemp);
+    // }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
