@@ -75,8 +75,8 @@ void pubMarkers(const lifelong_backend::KeyFrameInfo<PointT>& info);
 void keyframeCallback(const lwio::keyframe_info& info);
 void getWorkSpaceCallback(const std_msgs::Bool& flag);
 void pubOdomToMap(const Eigen::Isometry3d& odom_to_map);
-void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map);     
-void pubGlobalMap(const pcl::PointCloud<PointT>::ConstPtr& map);
+void pubLocalizeMap(const pcl::PointCloud<PointT>::Ptr& map);     
+void pubGlobalMap(const pcl::PointCloud<PointT>::Ptr& map);
 
 void InitComm(ros::NodeHandle& private_nh, ros::NodeHandle& nh) {
     // for (uint16_t i = 0; i < NUM_OF_LIDAR; i++)
@@ -425,6 +425,7 @@ void pubOdomToMap(const Eigen::Isometry3d& odom_to_map) {
     odom_to_map_msg.pose.pose.position.x = p[0];
     odom_to_map_msg.pose.pose.position.y = p[1];
     odom_to_map_msg.pose.pose.position.z = p[2];
+    std::cout << "pubOdomToMap, x: " << p[0] << ",y: " << p[1] << ",z: " << p[2] << "\n";
     // 构造四元数   
     odom_to_map_msg.pose.pose.orientation.w = quat.w();
     odom_to_map_msg.pose.pose.orientation.x = quat.x();
@@ -434,7 +435,7 @@ void pubOdomToMap(const Eigen::Isometry3d& odom_to_map) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map) {
+void pubLocalizeMap(const pcl::PointCloud<PointT>::Ptr& map) {
     sensor_msgs::PointCloud2 laserCloudTemp;
     if (localizeMap_pub.getNumSubscribers() != 0) {
         pcl::toROSMsg(*map, laserCloudTemp);
@@ -445,15 +446,15 @@ void pubLocalizeMap(const pcl::PointCloud<PointT>::ConstPtr& map) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void pubGlobalMap(const pcl::PointCloud<PointT>::ConstPtr& map) {
+void pubGlobalMap(const pcl::PointCloud<PointT>::Ptr& map) {
     std::cout << "-----------------------------------------------------------------pubGlobalMap" << std::endl;
-    // sensor_msgs::PointCloud2 laserCloudTemp;
-    // if (globalMap_pub.getNumSubscribers() != 0) {
-    //     // pcl::toROSMsg(*map, laserCloudTemp);
-    //     // laserCloudTemp.header.stamp = ros::Time::now();;
-    //     // laserCloudTemp.header.frame_id = "map";
-    //     // globalMap_pub.publish(laserCloudTemp);
-    // }
+    sensor_msgs::PointCloud2 laserCloudTemp;
+    if (globalMap_pub.getNumSubscribers() != 0) {
+        pcl::toROSMsg(*map, laserCloudTemp);
+        laserCloudTemp.header.stamp = ros::Time::now();;
+        laserCloudTemp.header.frame_id = "map";
+        globalMap_pub.publish(laserCloudTemp);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

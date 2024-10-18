@@ -7,15 +7,12 @@
  * @Description: 
  * @Others: 
  */
-
 #pragma once 
-
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
 #include <eigen3/Eigen/Dense>
-
 namespace lifelong_backend {
 /**
  * @brief KeyFrame  主要保存关键帧的各种观测信息

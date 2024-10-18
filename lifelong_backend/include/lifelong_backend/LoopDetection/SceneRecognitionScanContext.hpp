@@ -5,7 +5,6 @@
  * @version 1.0
  * 
  * @copyright Copyright (c) 2022
- * 
  */
 #pragma once 
 #include "GlobalDescriptor/scanContext/Scancontext.hpp"
@@ -78,7 +77,7 @@ public:
      * @brief: 查找相似的点云
      * @details: 用于重定位 
      * @param scan_in 输入关键帧的所有点云特征数据
-     * @return <id, 与相似帧的相对变换>
+     * @return <闭环的全局index, 与相似帧的相对变换>
      */            
     std::pair<int64_t, Eigen::Isometry3d> FindSimilarPointCloud(FeatureContainer const& scan_in) {
         if (polarcontext_ringkey_tree_ == nullptr) {
@@ -160,34 +159,34 @@ public:
      * @param database_dir 
      * @param max_index 加载到最大的序列号
      */
-    void Load(const std::string& database_dir, const uint32_t& max_index) {
+    void Load(const std::string& database_dir, const uint32_t& end_id) {
         polarcontext_ringkeys_vec_.clear(); 
         polarcontexts_sc_.clear();  
-        uint32_t index = 0;
+        uint32_t curr_id = 0;
         uint16_t ring_num = sc_.GetRingNum();
         uint16_t sector_num = sc_.GetSectorKeyNum();
-        std::cout << "加载scan_context描述子,最大index: " << max_index << std::endl;
+        std::cout << "加载scan_context描述子,最后的描述子id是: " << end_id - 1 << std::endl;
         // 加载描述子 
         SlamLib::time::TicToc tt;
 
-        while(index < max_index) {
+        while(curr_id < end_id) {
             // ifstream 文件输入流  用于向文件输入数据    
-           std::fstream ifs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(index), 
+           std::fstream ifs(database_dir + "/KeyFrameDescriptor/scan_context_" + std::to_string(curr_id), 
                                             std::ios::in | std::ios::binary);
             
             if(!ifs) {
-                std::cerr << "failed to create fstream, index: " << index << std::endl;
+                std::cerr << "failed to create fstream, curr_id: " << curr_id << std::endl;
                 continue;
             }
 
-            index++;  
             lifelong_backend::scan_context::proto::scan_context sc_proto;
 
             if (!sc_proto.ParseFromIstream(&ifs)) {
-                std::cerr << "sc_proto failed to read fstream, index: " << index - 1 << std::endl;
+                std::cerr << "sc_proto failed to read fstream, index: " << curr_id << std::endl;
                 continue;
             }
 
+            curr_id++;  
             Eigen::MatrixXd sc = Eigen::MatrixXd::Zero(ring_num, sector_num);
             uint16_t n = 0; 
 
@@ -211,7 +210,7 @@ public:
 
         tt.toc("load scan-context ");
         LOG(INFO) << SlamLib::color::GREEN << "load scan-context num " 
-            << index << SlamLib::color::RESET;
+            << curr_id << SlamLib::color::RESET;
         
         if (polarcontext_ringkeys_vec_.empty())  
             return;  
@@ -266,11 +265,11 @@ protected:
      * @details 步骤： 1、先通过 ringkey 找到 候选帧   2、
      * @param ring_key ring key 描述子
      * @param sc_desc SC描述子 
-     * @return <index, 相对变换>
+     * @return <整个轨迹空间的全局index, 相对变换>
      */            
     std::pair<int64_t, Eigen::Isometry3d> descFindSimilar( const std::vector<float>& ring_key, 
                                                                                                                          const Eigen::MatrixXd& sc_desc) {
-        std::cout << "descFindSimilar" << std::endl;
+        // std::cout << "descFindSimilar" << std::endl;
         double min_dist = 10000000; // init with somthing large
         int nn_align = 0;
         int64_t nn_idx = 0;

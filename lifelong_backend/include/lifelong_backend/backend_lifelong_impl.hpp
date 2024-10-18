@@ -8,10 +8,10 @@
  * @copyright Copyright (c) 2023
  */
 #pragma once 
+#include <yaml-cpp/yaml.h>
 #include "backend_lifelong.h"
 #include "SlamLib/PointCloud/Filter/voxel_grid.h"
 #include "InnerComm/InnerProcessComm.hpp"
-#include <yaml-cpp/yaml.h>
 namespace lifelong_backend {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 template<typename _FeatureT>
@@ -21,25 +21,25 @@ LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string 
     std::string optimizer_type = yaml["optimizer"]["type"].as<std::string>();
 
     if (optimizer_type == "gtsam") {
-        optimizer_ = std::make_unique<GtsamGraphOptimizer>(); 
+        pose_graph_optimizer_ = std::make_unique<GtsamGraphOptimizer>(); 
     } else if (optimizer_type == "g2o") {
-        optimizer_ = std::make_unique<G2oGraphOptimizer>(); 
+        pose_graph_optimizer_ = std::make_unique<G2oGraphOptimizer>(); 
     } else if (optimizer_type == "ceres") {
     }
     // 将定位匹配算法默认设置为NDT 
-    SlamLib::pointcloud::ndtomp_ptr<_FeatureT> ndt = 
-        SlamLib::pointcloud::CreateNDTOMP<_FeatureT>(
-            1.0,   // ndt  cell size 
-            0.01,   // 
-            0.1, 
-            30,  // 最大迭代次数  
-            4,   // 线程数量
-            "DIRECT7"
-        );
+    SlamLib::pointcloud::ndtomp_ptr<_FeatureT> ndt = SlamLib::pointcloud::CreateNDTOMP<_FeatureT>(
+                                                                                                                            1.0,   // ndt  cell size 
+                                                                                                                            0.01,  // 
+                                                                                                                            0.1, // 
+                                                                                                                            30,  // 最大迭代次数  
+                                                                                                                            4,   // 线程数量
+                                                                                                                            "DIRECT7" // 搜索方法
+                                                                                                                            );
+    // 将ndt_omp算法装载到定位匹配器中
     localize_registration_.reset(new SlamLib::pointcloud::PCLRegistration<_FeatureT>(
         std::move(ndt), "filtered"));  
     // 构造回环检测
-    LoopDetectionOption loop_detection_option;
+    option::LoopDetectionOption loop_detection_option;
     loop_detection_option.min_score = yaml["loop_detect"]["evaluate"]["min_score"].as<float>();
     loop_detection_option.overlap_thresh = yaml["loop_detect"]["evaluate"]["overlap_thresh"].as<float>();
     loop_detection_option.score_thresh = yaml["loop_detect"]["evaluate"]["score_thresh"].as<float>();
@@ -48,8 +48,8 @@ LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string 
         << " ,score_thresh: " << loop_detection_option.score_thresh << std::endl;
     loop_detect_ = std::make_unique<LoopDetection<_FeatureT>>(loop_detection_option); 
     work_mode_ = WorkMode::SLEEP;  
-    mapping_thread_ = std::thread(&LifeLongBackEndOptimization::mapping, this);  // 启动线程  
-    localization_thread_ = std::thread(&LifeLongBackEndOptimization::localization, this);   
+    mapping_thread_ = std::thread(&LifeLongBackEndOptimization::mapping, this);  // 启动建图线程  
+    localization_thread_ = std::thread(&LifeLongBackEndOptimization::localization, this);  // 定位线程
     new_external_constranit_num_ = 0; 
 }
 
@@ -63,50 +63,34 @@ LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string 
  */
 template<typename _FeatureT>
 std::vector<uint16_t> LifeLongBackEndOptimization<_FeatureT>::Load(std::string space_path) {  
-    option_.database_save_path_ = space_path;  
+    traj_space_path_ = space_path;  
     std::vector<uint16_t> traj_id_list;  
     work_mode_ = WorkMode::MAPPING;  
-    // pose graph 加载
-    if (!PoseGraphDataBase::GetInstance().Load(space_path)) {
+    // pose graph 加载 轨迹空间traj_space
+    if (!PoseGraphDataBase::GetInstance().Load(traj_space_path_)) {
         LOG(INFO) << SlamLib::color::YELLOW << "数据库为空，准备建图...... " << SlamLib::color::RESET;
         trajectory_ = PoseGraphDataBase::GetInstance().CreateNewSession(); 
-        loop_detect_->Load(space_path, 0);
+        loop_detect_->Load(traj_space_path_, 0);
         return traj_id_list;
     }  
-    loop_detect_->Load(space_path, PoseGraphDataBase::GetInstance().GetDataBaseInfo().keyframe_cnt); // 加载场景识别数据库 
+    loop_detect_->Load(traj_space_path_, PoseGraphDataBase::GetInstance().GetDataBaseInfo().last_keyframe_id); // 加载场景识别数据库 
     traj_id_list = lifelong_backend::PoseGraphDataBase::GetInstance().GetTrajectoryIDList();
     work_mode_ = WorkMode::RELOCALIZATION;   // 默认为建图模式 
     LOG(INFO) << SlamLib::color::GREEN << "载入历史数据库，准备重定位......" << SlamLib::color::RESET;
-    trajectory_ = traj_id_list.front();      // 默认使用轨迹0
-    return std::move(traj_id_list);
+    trajectory_ = traj_id_list.front();      // 默认使用轨迹
+    return traj_id_list;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief 
+ * 
+ * @tparam _FeatureT 
+ * @param resolution 降采样size
+ * @param save_path 
+ */
 template<typename _FeatureT>
 void LifeLongBackEndOptimization<_FeatureT>::SaveGlobalMap(float resolution, std::string save_path) {
-        typename pcl::PointCloud<_FeatureT>::Ptr global_map(new pcl::PointCloud<_FeatureT>());
-    // 遍历全部节点
-    uint64_t num = PoseGraphDataBase::GetInstance().GetGraphVertexNum();
-    for (uint64_t i = 0; i < num; i++) {
-        typename pcl::PointCloud<_FeatureT>::Ptr origin_points(new pcl::PointCloud<_FeatureT>());
-        pcl::PointCloud<_FeatureT> trans_points;   // 转换到世界坐标系下的点云 
-        // 读取该节点的点云
-        PoseGraphDataBase::GetInstance().GetKeyFramePointCloud<_FeatureT>(
-            "filtered", i, origin_points);
-        // 读取节点的位姿
-        Eigen::Isometry3d pose;
-        PoseGraphDataBase::GetInstance().SearchVertexPose(i, pose);
-        pcl::transformPointCloud(*origin_points, trans_points, pose.matrix()); // 转到世界坐标  
-        *global_map += trans_points;
-    }
-    // 对global_map进行滤波
-    SlamLib::pointcloud::FilterOption::VoxelGridFilterOption option;
-    option.mode_ = "VoxelGrid";
-    option.voxel_grid_option_.resolution_ = resolution;
-    SlamLib::pointcloud::VoxelGridFilter<_FeatureT> voxel_filter(option);
-    voxel_filter.Filter(global_map); 
-    pcl::io::savePCDFileBinary(save_path + "/global_map.pcd", *global_map);
-    return;  
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -115,11 +99,19 @@ void LifeLongBackEndOptimization<_FeatureT>::SavePoseGraph() {
     ForceGlobalOptimaze();  
     PoseGraphDataBase::GetInstance().Save();    // 数据库保存
     std::cout << "数据库保存成功！" << std::endl;
-    loop_detect_->Save(option_.database_save_path_);    // 回环检测数据库保存 
+    loop_detect_->Save(traj_space_path_);    // 回环检测数据库保存 
     std::cout << "场景识别数据保存成功！" << std::endl;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * @brief 设置当前加载的轨迹
+ * 
+ * @tparam _FeatureT 
+ * @param traj_id 
+ * @return true 
+ * @return false 
+ */
 template<typename _FeatureT>
 bool LifeLongBackEndOptimization<_FeatureT>::SetTrajectory(uint16_t traj_id) {
     std::cout << "SetTrajectory ,traj_id: " << traj_id << std::endl;
@@ -135,13 +127,14 @@ bool LifeLongBackEndOptimization<_FeatureT>::SetTrajectory(uint16_t traj_id) {
     std::cout << "vertex_database_ size: " << keyframe_info.vertex_database_.size() << std::endl;
     // 更新全局地图  
     buildGlobalMap(trajectory_, "filtered", 0.2);
-    // IPC::Server::Instance().Publish("global_map", global_map_);   // 发布地图
+    IPC::Server::Instance().Publish("global_map", global_map_);   // 发布地图
     return true;  
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 template<typename _FeatureT>
-bool LifeLongBackEndOptimization<_FeatureT>::buildGlobalMap(const uint16_t& traj, const std::string& points_name,
+bool LifeLongBackEndOptimization<_FeatureT>::buildGlobalMap(const uint16_t& traj, 
+                                                                                                                                            const std::string& points_label,
                                                                                                                                             const float& resolution) {
     const auto& traj_vertexs = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(traj); 
     pcl::PointCloud<_FeatureT> origin_points;   // 激光坐标系下的点云
@@ -149,20 +142,19 @@ bool LifeLongBackEndOptimization<_FeatureT>::buildGlobalMap(const uint16_t& traj
     global_map_->clear();  
 
     for (const auto& vertex : traj_vertexs) {
-        if (!PoseGraphDataBase::GetInstance().GetKeyFramePointCloud(points_name, vertex.id_, origin_points)) {
+        // 根据节点的id获取点云
+        if (!PoseGraphDataBase::GetInstance().GetKeyFramePointCloud(points_label, vertex.id_, origin_points)) {
             return false;
         }
         pcl::transformPointCloud (origin_points, trans_points, vertex.pose_.matrix()); // 转到世界坐标  
         *global_map_ += trans_points;  
     }
-    std::cout << "滤波前 global map size: " << global_map_->size() << std::endl;
     // 对global_map进行滤波
     SlamLib::pointcloud::FilterOption::VoxelGridFilterOption option;
     option.mode_ = "VoxelGrid";
     option.voxel_grid_option_.resolution_ = resolution;
     SlamLib::pointcloud::VoxelGridFilter<_FeatureT> voxel_filter(option);
     voxel_filter.Filter(global_map_); 
-    std::cout << "滤波后 global map size: " << global_map_->size() << std::endl;
     // pcl::io::savePCDFileBinary("/home/lwh/global_map.pcd", *global_map_);
     return true;  
 }
@@ -233,28 +225,28 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
         LOG(INFO) << SlamLib::color::GREEN << "-----------------RELOCALIZATION!-----------------" 
             << SlamLib::color::RESET;
         RelocResult reloc_res = loop_detect_->Relocalization(lidar_data.pointcloud_data_); 
-        static uint8_t n = 0;  
+        static uint8_t reloc_times = 0;  
         // 重定位失败 ，若开启地图更新，此时会重新建立一条新的轨迹，否则延迟一下，继续重定位 
         if (reloc_res.traj_id_ < 0) {
             if (enable_lifelong_) {
                 // 连续几帧重定位失败则建立新地图 
-                if (n > 10) {
+                if (reloc_times > 10) {
                     std::cout << SlamLib::color::GREEN << "重定位失败，新建轨迹..." 
                         << SlamLib::color::RESET << std::endl;
-                    n = 0;
+                    reloc_times = 0;
                     work_mode_ = WorkMode::MAPPING;
-                    optimizer_->Reset();  
+                    pose_graph_optimizer_->Reset();  
                     trajectory_ = PoseGraphDataBase::GetInstance().CreateNewSession(); 
                 }
-                n++;
+                reloc_times++;
             }
         } else {
-            n = 0;
+            reloc_times = 0;
             work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
             this->trans_odom2map_ = reloc_res.pose_ * odom.inverse(); 
             IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
             trajectory_ = reloc_res.traj_id_;
-            optimizer_->Rebuild(PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_),
+            pose_graph_optimizer_->Rebuild(PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_),
                                                         PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_));  
             // 可视化历史轨迹
             KeyFrameInfo<_FeatureT> keyframe_info; 
@@ -272,7 +264,6 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
     last_keyframe_odom_ = odom;    
     this->new_keyframe_queue_.push_back(keyframe);     
     this->new_keyframe_points_queue_.push_back(lidar_data.pointcloud_data_); 
-    // IPC::Server::Instance().Publish("global_map", global_map_);   // 发布地图
     // 如果是建图阶段   则需要发布图优化相关数据   供其他模块使用    
     if (work_mode_ != WorkMode::MAPPING) {
         return;  
@@ -289,7 +280,7 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
 // 强制执行一次全局优化   save的时候用
 template<typename _FeatureT>
 void LifeLongBackEndOptimization<_FeatureT>::ForceGlobalOptimaze() {
-    optimizer_->Optimize();  
+    pose_graph_optimizer_->Optimize();  
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -333,11 +324,6 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
             SlamLib::time::TicToc tt;  
             loop_detect_->HistoricalPositionSearch(trajectory_, curr_pos, 20, 10, search_ind, search_dis);   // 搜索最近的历史关键帧
             // tt.toc("HistoricalPositionSearch ");
-            // for (auto& i : search_ind) {
-            //     std::cout << "knn id:" << 
-            //         PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(trajectory_, i).id_ 
-            //  << std::endl;
-            // }
             /**
              *如果啥都搜不到呢？   如果啥都搜不到说明当前位姿不确定了需要重定位
              */                    
@@ -354,18 +340,18 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                  *  直接提取这个区域的submap进行定位，这个submap也具备更新的能力 
                  */
                 // 遍历定位所需的所有点云标识名   将定位所需要的点云local map 提取出来 
-                for (auto const& name : localize_registration_->GetUsedPointsName()) {   
-                    // 从数据库中查找 名字为 name 的点云 
+                for (auto const& label : localize_registration_->GetUsedPointsName()) {   
+                    // 从数据库中查找 名字为 label 的点云 
                     PointCloudPtr local_map(new pcl::PointCloud<_FeatureT>());
-                    if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, name, local_map)) {
+                    if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, label, local_map)) {
                         work_mode_ = WorkMode::RELOCALIZATION;
                         continue; 
                     }
                     // std::cout << "before filter size: " << local_map->size() << std::endl;
                     downsample.Filter(local_map); 
                     // std::cout << "after filter size: " << local_map->size() << std::endl;
-                    localize_registration_->SetInputSource(std::make_pair(name, local_map)); 
-                    loc_points.map_[name] = local_map; 
+                    localize_registration_->SetInputSource(std::make_pair(label, local_map)); 
+                    loc_points.map_[label] = local_map; 
                     // SlamLib::time::TicToc tt;  
                     IPC::Server::Instance().Publish("localize_map", local_map);   // 发布地图用于可视化    
                     // tt.toc("Publish ");   // 1ms
@@ -380,32 +366,29 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                     work_mode_ = WorkMode::RELOCALIZATION;
                     continue;  
                 }
-                //std::cout<<SlamLib::color::GREEN<<"after loc pose_in_map: "<<pose_in_map.matrix()<<std::endl;
                 double t = tt.toc("localization ");
-                // avg_t += (t - avg_t) / n;
-                // n++;  
-                // std::cout << "avg_t: " << avg_t << std::endl;
                 // 更为全面的评估定位的状态，环境的变化
-                std::cout << "评估 " << std::endl;
+                std::cout << "----------------------评估--------------------- " << std::endl;
                 tt.tic(); 
                 // 匹配评估
                 typename pcl::PointCloud<_FeatureT>::ConstPtr evaluate_local_map(
                     new pcl::PointCloud<_FeatureT>());
-                std::string required_name = "filtered";    // 获取检验模块需要的点云标识名
+                std::string checked_point_label = "filtered";    // 获取检验模块需要的点云标识名
                 // 检查定位匹配阶段 是否已经构建了定位评估阶段所需要使用的地图 
-                if (loc_points.map_.find(required_name) != loc_points.map_.end()) {
-                    evaluate_local_map = loc_points.map_[required_name];  
+                if (loc_points.map_.find(checked_point_label) != loc_points.map_.end()) {
+                    evaluate_local_map = loc_points.map_[checked_point_label];  
                 } else {  
                     // 没有所需要的地图数据则进行构建
                     typename pcl::PointCloud<_FeatureT>::Ptr local_map(new pcl::PointCloud<_FeatureT>());
-                    if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, required_name, local_map)) {
+                    if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, 
+                                                                                                                                            checked_point_label, local_map)) {
                         work_mode_ = WorkMode::RELOCALIZATION;
                         continue; 
                     }
                     evaluate_local_map = local_map;
                 }
                 align_evaluator_.SetTargetPoints(evaluate_local_map);      // 0-15ms 
-                std::pair<double, double> res = align_evaluator_.AlignmentScore(points.at(required_name), 
+                std::pair<double, double> res = align_evaluator_.AlignmentScore(points.at(checked_point_label), 
                                                                                     pose_in_map.matrix().cast<float>(), 0.2, 0.3); // 0-10ms 
                 tt.toc("evaluate ");                                                                                                          
                 std::cout<<"score: "<<res.first<<std::endl;
@@ -416,29 +399,29 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                 if (res.first > 1)  {  
                     // 进行重定位
                     work_mode_ = WorkMode::RELOCALIZATION;
-                    // #if (debug == 1)
-                    //     pcl::PointCloud<_FeatureT> input_transformed;
-                    //     // cloud 通过  relpose 转到  input_transformed  
-                    //     pcl::transformPointCloud (*points.at(required_name), 
-                    //                                                             input_transformed, 
-                    //                                                             pose_in_map.matrix().cast<float>());
-                    //     static uint16_t ind = 0; 
-                    //     typename pcl::PointCloud<_FeatureT>::Ptr res_points(new pcl::PointCloud<_FeatureT>());
-                    //     *res_points = *evaluate_local_map;
-                    //         *res_points += input_transformed; 
-                    //     pcl::io::savePCDFileBinary(
-                    //         "/home/lwh/code/lwh_ws-master/src/liv_slam-master/slam_data/point_cloud/loc_err_all.pcd"
-                    //         , *res_points);
-                    //     pcl::io::savePCDFileBinary(
-                    //         "/home/lwh/code/lwh_ws-master/src/liv_slam-master/slam_data/point_cloud/loc_err_map.pcd"
-                    //         , *evaluate_local_map);
-                    //     pcl::io::savePCDFileBinary(
-                    //         "/home/lwh/code/lwh_ws-master/src/liv_slam-master/slam_data/point_cloud/loc_err_scan.pcd"
-                    //         , *points.at(required_name));
-                    //     pcl::io::savePCDFileBinary(
-                    //         "/home/lwh/code/lwh_ws-master/src/liv_slam-master/slam_data/point_cloud/loc_err_scan_trans.pcd"
-                    //         , input_transformed);
-                    // #endif
+                    #if (BACKEND_DEBUG == 1)
+                        pcl::PointCloud<_FeatureT> input_transformed;
+                        // cloud 通过  relpose 转到  input_transformed  
+                        pcl::transformPointCloud (*points.at(required_name), 
+                                                                                input_transformed, 
+                                                                                pose_in_map.matrix().cast<float>());
+                        static uint16_t ind = 0; 
+                        typename pcl::PointCloud<_FeatureT>::Ptr res_points(new pcl::PointCloud<_FeatureT>());
+                        *res_points = *evaluate_local_map;
+                            *res_points += input_transformed; 
+                        pcl::io::savePCDFileBinary(
+                            "/home/lwh/code/lwh_ws-master/src/liv_slam-master/slam_data/point_cloud/loc_err_all.pcd"
+                            , *res_points);
+                        pcl::io::savePCDFileBinary(
+                            "/home/lwh/code/lwh_ws-master/src/liv_slam-master/slam_data/point_cloud/loc_err_map.pcd"
+                            , *evaluate_local_map);
+                        pcl::io::savePCDFileBinary(
+                            "/home/lwh/code/lwh_ws-master/src/liv_slam-master/slam_data/point_cloud/loc_err_scan.pcd"
+                            , *points.at(required_name));
+                        pcl::io::savePCDFileBinary(
+                            "/home/lwh/code/lwh_ws-master/src/liv_slam-master/slam_data/point_cloud/loc_err_scan_trans.pcd"
+                            , input_transformed);
+                    #endif
                     continue;  
                 }
                 if (enable_lifelong_) {
@@ -449,9 +432,8 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                         if (min_historical_keyframe_dis > 10) {
                             // 转为纯建图模式
                             // 搜索最近历史结点的位姿 
-                            Eigen::Isometry3d front_pose; 
-                            // PoseGraphDataBase::GetInstance().SearchVertexPose(search_ind[0], front_pose); 
-                            Vertex nearest_vertex = PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(trajectory_, search_ind[0]);
+                            Vertex nearest_vertex = 
+                                PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(trajectory_, search_ind[0]);
                             Eigen::Isometry3d relpose = pose_in_map.inverse() * nearest_vertex.pose_;    // 与最近历史结点的想对位姿
                             std::cout << "扩展建图，连接的轨迹：" << trajectory_ << ", 连接的结点id: " << nearest_vertex.id_
                                 << ", relpose: " << std::endl << relpose.matrix() << std::endl;
@@ -526,11 +508,12 @@ void LifeLongBackEndOptimization<_FeatureT>::mapping() {
             // 优化完成后 更新数据库  
             std::vector<Vertex>& curr_traj_vertex = database.GetTrajectoryVertex(trajectory_);
             for (auto& vertex : curr_traj_vertex) {
-                vertex.pose_ = optimizer_->GetNodePose(vertex.id_); 
+                vertex.pose_ = pose_graph_optimizer_->GetNodePose(vertex.id_); 
             }
-            this->trans_odom2map_ = optimizer_->GetNodePose(last_add_database_keyframe_.id_) 
+            this->trans_odom2map_ = pose_graph_optimizer_->GetNodePose(last_add_database_keyframe_.id_) 
                                                                     * last_add_database_keyframe_.odom_.inverse();  
             IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
+            // 如果是lifelong模式，产生回环说明进入历史场景下，因此尝试进入定位状态
             if (enable_lifelong_ && has_loop_) {
                 // 进入定位模式前需要更新一下可视化 
                 KeyFrameInfo<_FeatureT> keyframe_info; 
@@ -540,7 +523,6 @@ void LifeLongBackEndOptimization<_FeatureT>::mapping() {
                 IPC::Server::Instance().Publish("keyframes_info", keyframe_info);   // 发布图关键帧  
                 work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
                 // std::cout << "建图线程：进入定位模式！" << std::endl;
-                // localization_thread_ = std::thread(&LifeLongBackEndOptimization::localization, this);  
                 has_loop_ = false;  
             }
         }
@@ -560,8 +542,6 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
     if (this->new_keyframe_queue_.empty()) {
         return false;
     }
-    // std::cout << "trajectory: " << trajectory_ << ", size: " << 
-    // PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_).size() << std::endl;
     // 处理的数量  
     int num_processed = std::min<int>(this->new_keyframe_queue_.size(), 
                                                                                 max_keyframes_per_update_);
@@ -582,10 +562,10 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
         loop_detect_->AddRequest(id_localIndex.first, id_localIndex.second, points);    
         // 每段轨迹的第一个结点 fix 
         if (id_localIndex.second == 0) {
-            optimizer_->AddSe3Node(corrected_pose, id_localIndex.first, true);
+            pose_graph_optimizer_->AddSe3Node(corrected_pose, id_localIndex.first, true);
             continue;
         }
-        optimizer_->AddSe3Node(corrected_pose, id_localIndex.first); 
+        pose_graph_optimizer_->AddSe3Node(corrected_pose, id_localIndex.first); 
         // std::cout << "AddSe3Node, id: " << id_localIndex.first << std::endl;
         // 观测噪声
         Eigen::Matrix<double, 1, 6> noise;
@@ -594,7 +574,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::processData() {
         if (keyframe.adjacent_id_ == -1) {
             keyframe.adjacent_id_ = id_localIndex.first - 1;  
         }
-        optimizer_->AddSe3Edge(id_localIndex.first, keyframe.adjacent_id_, keyframe.between_constraint_, noise);  
+        pose_graph_optimizer_->AddSe3Edge(id_localIndex.first, keyframe.adjacent_id_, keyframe.between_constraint_, noise);  
         PoseGraphDataBase::GetInstance().AddEdge(trajectory_, id_localIndex.first, keyframe.adjacent_id_, 
                                                                                                         id_localIndex.second , keyframe.between_constraint_, noise);  
         // std::cout << "AddEdge, trajectory_: " << trajectory_ << " adjacent_id: " << keyframe.adjacent_id_ << ", curr_id: " << id_localIndex.first
@@ -687,7 +667,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                     for (auto& vertex : curr_traj_vertex) {
                         vertex.pose_ = correct * vertex.pose_;  
                         vertex.traj_ = new_loops[i].loop_traj_;
-                        optimizer_->SetNodePose(vertex.id_, vertex.pose_); 
+                        pose_graph_optimizer_->SetNodePose(vertex.id_, vertex.pose_); 
                     }
                 } else {
                     // 回环的轨迹与当前轨迹对齐
@@ -702,13 +682,13 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                         // 更新位姿点云
                         PoseGraphDataBase::GetInstance().UpdataKeyframePointcloud(new_loops[i].loop_traj_, n, loop_trajectory_vertexs[n].pose_);
                     } 
-                    optimizer_->AddSe3Node(loop_trajectory_vertexs[n].pose_, loop_trajectory_vertexs[n].id_); 
+                    pose_graph_optimizer_->AddSe3Node(loop_trajectory_vertexs[n].pose_, loop_trajectory_vertexs[n].id_); 
                 }
                 // 从数据库磁盘中加载对应轨迹的边  
                 const std::vector<Edge>& loop_trajectory_edges = 
                     PoseGraphDataBase::GetInstance().GetTrajectoryEdge(new_loops[i].loop_traj_);
                 for (auto& edge : loop_trajectory_edges) {
-                    optimizer_->AddSe3Edge(edge.link_id_.first, edge.link_id_.second, 
+                    pose_graph_optimizer_->AddSe3Edge(edge.link_id_.first, edge.link_id_.second, 
                                                         edge.constraint_, edge.noise_);  
                 }
                 // 合并
@@ -718,13 +698,9 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
                 } else {
                     PoseGraphDataBase::GetInstance().MergeTrajectory(trajectory_, new_loops[i].loop_traj_); 
                 }
-            } else {
-            //     std::cout << "new_loops[i].loop_traj_: " << new_loops[i].loop_traj_ 
-            //             << ",trajectory_: " << trajectory_ << std::endl;
-            // }
             }
             // std::cout << "loop head: " << new_loops[i].link_id_.first << ", tail: " << new_loops[i].link_id_.second << std::endl;
-            optimizer_->AddSe3Edge(new_loops[i].link_id_.first, new_loops[i].link_id_.second, 
+            pose_graph_optimizer_->AddSe3Edge(new_loops[i].link_id_.first, new_loops[i].link_id_.second, 
                                                                     new_loops[i].constraint_, new_loops[i].noise_);  
             // 回环数据记录到数据库中
             PoseGraphDataBase::GetInstance().AddEdge(trajectory_, new_loops[i]);  
@@ -743,8 +719,8 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
     }  
     // 执行优化
     SlamLib::time::TicToc tt;
-    optimizer_->Optimize(has_loop_);  
-    tt.toc("optimizer_->Optimize ");
+    pose_graph_optimizer_->Optimize(has_loop_);  
+    tt.toc("pose_graph_optimizer_->Optimize ");
     do_optimize = false;  
     return true;  
 }

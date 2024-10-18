@@ -17,7 +17,7 @@
 // #include "Common/data_manager.hpp"
 namespace lifelong_backend {
 // using common::DataManager; 
-#define debug 1
+#define BACKEND_DEBUG 0
 /**
  * @brief: 后端优化模块 , 优化器可选用gtsam/g2o 
  * @details: 实现 
@@ -29,9 +29,6 @@ namespace lifelong_backend {
 template<typename _FeatureT>
 class LifeLongBackEndOptimization : public BackEndOptimizationBase<_FeatureT> {
 private:
-    struct Option {
-        std::string database_save_path_;  
-    } option_;
     enum class WorkMode {
         RELOCALIZATION = 0, // 开机之后处于该模式   接着会进行重定位找回定位 
         LOCALIZATION,
@@ -120,6 +117,7 @@ protected:
      */            
     bool optimize() override;
 private:
+    std::string traj_space_path_;  
     // 局部优化每次处理的最大帧数  
     int max_keyframes_per_update_ = 30;
     int planeConstraint_optimize_freq_ = 5;
@@ -134,7 +132,7 @@ private:
     // 回环模块 
     std::unique_ptr<LoopDetection<_FeatureT>> loop_detect_;  
     // 优化器
-    std::unique_ptr<GraphOptimizerInterface> optimizer_;  
+    std::unique_ptr<GraphOptimizerInterface> pose_graph_optimizer_;  
     // 定位匹配
     RegistrationPtr localize_registration_;
     // 匹配评估器

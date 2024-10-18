@@ -19,12 +19,14 @@
 #include "../Common/keyframe.hpp"
 #include "SceneRecognitionScanContext.hpp"
 namespace lifelong_backend {
-#define LOOP_DEBUG 0
+namespace option {
 struct LoopDetectionOption {
     double score_thresh;
     double overlap_thresh;
     double min_score;  
 };
+}
+#define LOOP_DEBUG 0
 /**
  * @brief 重定位结果
  * 
@@ -49,16 +51,16 @@ private:
     using RegistrationPtr = std::unique_ptr<SlamLib::pointcloud::RegistrationBase<_PointType>>;   
     
     struct LoopKeyframeInfo {
-        LoopKeyframeInfo(const uint32_t& id, const uint32_t& global_index, 
-            const uint32_t& local_index) : global_index_(global_index), id_(id), local_index_(local_index) {}
+        LoopKeyframeInfo(const uint32_t& id, const uint32_t& global_index, const uint32_t& local_index) 
+            : global_index_(global_index), id_(id), local_index_(local_index) {}
         uint32_t id_;
         uint32_t global_index_;
         uint32_t local_index_;
     };
 public:
-    LoopDetection(LoopDetectionOption option) : SCORE_THRESH_(option.score_thresh), 
+    LoopDetection(option::LoopDetectionOption option) : SCORE_THRESH_(option.score_thresh), 
             OVERLAP_THRESH_(option.overlap_thresh), MIN_SCORE_(option.min_score) {
-        kdtreeHistoryKeyPoses.reset(new pcl::KdTreeFLANN<pcl::PointXYZ>()); // 关键帧位姿管理树
+        kdtreeHistoryKeyPoses_.reset(new pcl::KdTreeFLANN<pcl::PointXYZ>()); // 关键帧位姿管理树
         loop_thread_ = std::thread(&LoopDetection::LoopDetect, this);  
         // 创建NDT
         SlamLib::pointcloud::ndtomp_ptr<_PointType> rough_ndt_ptr = 
@@ -75,10 +77,10 @@ public:
             std::move(refine_ndt_ptr), 
             "filtered"
         ));
-        // 获取 匹配算法所需要的点云名字
+        // 获取匹配算法所需要的点云标识
         rough_registration_specific_labels_ = rough_registration_->GetUsedPointsName();
         refine_registration_specific_labels_ = refine_registration_->GetUsedPointsName();
-        evaluative_pointcloud_label_ = "filtered";
+        evaluative_pointcloud_label_ = "filtered";    // 用于评估匹配质量的点云标识
     }
 
     virtual ~LoopDetection() {}
@@ -89,11 +91,13 @@ public:
      * @param scan_in 点云数据 
      * @return {*}
      */            
-    void AddRequest(const uint32_t& id, const uint32_t& local_index, FeaturePointcloudContainer const& scan_in) {
+    void AddRequest(const uint32_t& id, const uint32_t& local_index, 
+                                        const FeaturePointcloudContainer& scan_in) {
+        // 将该点云添加到场景识别模块中计算描述子，计算完后返回该点云的全局序号 
         uint32_t global_index = scene_recognizer_.AddKeyFramePoints(scan_in);
-        processed_queue_mt_.lock();
-        wait_processed_keyframe_.emplace_back(id, global_index, local_index); 
-        processed_queue_mt_.unlock();   
+        wait_loop_detect_queue_mt_.lock();
+        wait_loop_detect_keyframe_.emplace_back(id, global_index, local_index); 
+        wait_loop_detect_queue_mt_.unlock();   
     }
 
     /**
@@ -112,8 +116,8 @@ public:
             return reloc_res; 
         }
         PoseGraphDataBase& poseGraph_database = PoseGraphDataBase::GetInstance(); 
-        // 从数据库中读取该回环的vertex 信息
-        Vertex loop_vertex = poseGraph_database.GetVertexByDatabaseIndex(res.first);  
+        // 根据在轨迹空间的全局index获得相应的节点
+        Vertex loop_vertex = poseGraph_database.GetVertexByGlobalIndex(res.first);  
         // std::cout << " curr_trajectory_id_: " << curr_trajectory_id_ << ",loop_vertex.traj_: "
         //         << loop_vertex.traj_ << ",loop_vertex.id_: " << loop_vertex.id_ << std::endl;
         // 通过kdtree 在同一条轨迹的历史结点中搜索若干个距离回环结点最接近的若干结点组成local map  
@@ -121,23 +125,25 @@ public:
         loop_vertex_position.x = loop_vertex.pose_.translation().x();
         loop_vertex_position.y = loop_vertex.pose_.translation().y();
         loop_vertex_position.z = loop_vertex.pose_.translation().z();
+        // 搜索结果 search_ind 是轨迹内的局部序号
         std::vector<int> search_ind;
         std::vector<float> search_dis;
         HistoricalPositionSearch(loop_vertex.traj_, loop_vertex_position, 20, 10, search_ind, search_dis);
         // step2 采用粗匹配 + 细匹配模式求解出位姿
         ConstFeaturePointcloudContainer localmaps;  
         // 将粗匹配所需要的点云local map 提取出来 
-        for (auto const& name : rough_registration_specific_labels_) {   
-            // 从数据库中查找 名字为 name 的点云 
+        for (auto const& label : rough_registration_specific_labels_) {   
+            // 从数据库中查找 名字为 label 的点云 
             PointCloudPtr local_map(new pcl::PointCloud<_PointType>());
-            if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
-                LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,name: "
-                    << name << SlamLib::color::RESET;
+            if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, label, local_map)) {
+                LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,label: "
+                    << label << SlamLib::color::RESET;
                 reloc_res.traj_id_ = -1;
                 return reloc_res; 
             }
-            rough_registration_->SetInputSource(std::make_pair(name, local_map)); 
-            localmaps[name] = local_map; 
+            rough_registration_->SetInputSource(std::make_pair(label, local_map)); 
+            // 将构造的局部子图临时保存
+            localmaps[label] = local_map; 
         }
         rough_registration_->SetInputTarget(scan_in);
         res.second = loop_vertex.pose_ * res.second;  
@@ -148,19 +154,19 @@ public:
         }
         // 细匹配
         // 将细匹配所需要的点云local map 提取出来 
-        for (auto const& name : refine_registration_specific_labels_) {
+        for (auto const& label : refine_registration_specific_labels_) {
             // 如果 细匹配所需要的local map 在之前粗匹配时  已经提取了
-            if (localmaps.find(name) == localmaps.end()) {
+            if (localmaps.find(label) == localmaps.end()) {
                 PointCloudPtr local_map(new pcl::PointCloud<_PointType>());
-                if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
-                    LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,name: "
-                        << name << SlamLib::color::RESET;
+                if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, label, local_map)) {
+                    LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,label: "
+                        << label << SlamLib::color::RESET;
                     reloc_res.traj_id_ = -1;
                     return reloc_res; 
                 }
-                localmaps[name] = local_map; 
+                localmaps[label] = local_map; 
             }
-            refine_registration_->SetInputSource(std::make_pair(name, localmaps[name]));  
+            refine_registration_->SetInputSource(std::make_pair(label, localmaps[label]));  
         }
         refine_registration_->SetInputTarget(scan_in);
         if (!refine_registration_->Solve(res.second)) {
@@ -168,25 +174,25 @@ public:
             return reloc_res; 
         }
         // step3 检验   
-        std::string required_name = "filtered";    // 获取检验模块需要的点云标识名
-        if (localmaps.find(required_name) == localmaps.end()) {
+        std::string checked_label = "filtered";    // 获取检验模块需要的点云标识名
+        if (localmaps.find(checked_label) == localmaps.end()) {
             PointCloudPtr local_map(new pcl::PointCloud<_PointType>());
-            if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, required_name, local_map)) {
+            if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, checked_label, local_map)) {
                 LOG(WARNING) << SlamLib::color::RED << "Relocalization() error: can't find local map,name: "
-                    << required_name << SlamLib::color::RESET;
+                    << checked_label << SlamLib::color::RESET;
                 reloc_res.traj_id_ = -1;
                 return reloc_res; 
             }
-            localmaps[required_name] = local_map; 
+            localmaps[checked_label] = local_map; 
         }
-        align_evaluator_.SetTargetPoints(localmaps[required_name]); 
+        align_evaluator_.SetTargetPoints(localmaps[checked_label]); 
         
-        std::pair<double, double> eva = align_evaluator_.AlignmentScore(
-            scan_in.at(required_name), res.second.matrix().cast<float>(), 0.2, 0.8); 
+        std::pair<double, double> align_param = align_evaluator_.AlignmentScore(
+            scan_in.at(checked_label), res.second.matrix().cast<float>(), 0.2, 0.8); 
         tt.toc("Relocalization ");
         // score的物理意义 是 均方残差
-        if (eva.first  > 0.1) {
-            LOG(INFO) << "score: " << eva.first << SlamLib::color::RESET;
+        if (align_param.first  > 0.1) {
+            LOG(INFO) << "score: " << align_param.first << SlamLib::color::RESET;
             // 对回环匹配失败的进行可视化检测
             #if (LOOP_DEBUG == 1)
                 // 检测回环匹配是否准确  
@@ -209,7 +215,7 @@ public:
         reloc_res.global_index_ = res.first;
         reloc_res.pose_ = res.second;  
         LOG(INFO) << SlamLib::color::GREEN << "relocalization success!";
-        LOG(INFO) << "score: " << eva.first << SlamLib::color::RESET;
+        LOG(INFO) << "score: " << align_param.first << SlamLib::color::RESET;
         return reloc_res;  
     }
 
@@ -237,41 +243,47 @@ public:
     /**
      * @brief 加载回环模块数据    
      * 
-     * @param path 
+     * @param database_path 
+     * @param end_id 加载的最后一个关键帧数据的id号
      */
-    void Load(std::string const& path, const uint64_t& max_index) {
-        scene_recognizer_.Load(path, max_index);   // 场景识别模块加载数据
+    void Load(std::string const& database_path, const uint64_t& end_id) {
+        scene_recognizer_.Load(database_path, end_id);   // 场景识别模块加载数据
     }
 
     /**
-     * @brief: 从轨迹id为curr_trajectory_id_的历史关键帧中查找位置与给定目标接近的
-     * @details: 
+     * @brief 从轨迹id为curr_trajectory_id_的历史关键帧中查找位置与给定目标接近的
+     * 
+     * @param traj 目标轨迹
+     * @param pos 搜索位置
      * @param max_search_dis 最远搜索距离  如果>0 那么有效，<=0则是不考虑搜索距离 
-     * @return 查找到的数量 
-     */            
-    int HistoricalPositionSearch(const uint16_t& traj, pcl::PointXYZ const& pos, double const& max_search_dis,
-                                                                uint16_t const& max_search_num, std::vector<int>& search_ind,
+     * @param max_search_num 最多搜索的数量
+     * @param[out] search_idx 搜索的结果，轨迹内部的局部序号
+     * @param[out] search_dis 
+     * @return int  查找到的数量 
+     */
+    int HistoricalPositionSearch(const uint16_t& traj, const pcl::PointXYZ& pos, const double& max_search_dis,
+                                                                const uint16_t& max_search_num, std::vector<int>& search_idx,
                                                                 std::vector<float>& search_dis) {   
         // 如果目标搜索轨迹  与 当前模块的加载轨迹不一致  那么要重新加载轨迹数据库
         if (traj != curr_trajectory_id_) {
             // 变化则要更新位姿搜索kdtree 
             pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
                 PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud(traj);  
-            kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
+            kdtreeHistoryKeyPoses_->setInputCloud(keyframe_position_cloud);
             last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
             curr_trajectory_id_ = traj;  
         } else if (last_keyframe_position_kdtree_size_ != 
                 PoseGraphDataBase::GetInstance().GetTrajectorVertexNum(curr_trajectory_id_)) {  
             pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
                 PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud(curr_trajectory_id_);  
-            kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
+            kdtreeHistoryKeyPoses_->setInputCloud(keyframe_position_cloud);
             last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
         }
         if (max_search_dis <= 0) {  // knn
-            return kdtreeHistoryKeyPoses->nearestKSearch(pos, max_search_num, search_ind, search_dis); 
+            return kdtreeHistoryKeyPoses_->nearestKSearch(pos, max_search_num, search_idx, search_dis); 
         }
         // 在历史关键帧中查找与当前关键帧距离小于阈值的集合  
-        return kdtreeHistoryKeyPoses->radiusSearch(pos, max_search_dis, search_ind, search_dis, 
+        return kdtreeHistoryKeyPoses_->radiusSearch(pos, max_search_dis, search_idx, search_dis, 
                                                                                         max_search_num); 
     }
 
@@ -279,22 +291,22 @@ public:
      * @brief 用一条轨迹上的结点去构造一个Local map 
      * 
      * @param traj 轨迹的id 
-     * @param search_ind 选择的轨迹结点的局部index  
-     * @param points_name 选择的点的名字   
+     * @param search_idx 选择的轨迹结点的局部index  
+     * @param points_label 选择的点的名字   
      * @param[out] local_map 输出目标local map   
      * @return true 
      * @return false 
      */
-    bool ConstructLocalmapByTrajectoryNode(uint16_t traj, std::vector<int> const& search_ind,
-                                                                                                std::string const& points_name, 
+    bool ConstructLocalmapByTrajectoryNode(const uint16_t& traj, const std::vector<int>& search_idx,
+                                                                                                const std::string& points_label, 
                                                                                                 PointCloudPtr& local_map) {
         pcl::PointCloud<_PointType> origin_points;   // 激光坐标系下的点云
         pcl::PointCloud<_PointType> trans_points;   // 转换到世界坐标系下的点云 
         local_map->clear();  
         // 遍历每一个index的结点
-        for (const int& idx : search_ind) {
+        for (const int& idx : search_idx) {
             Vertex vertex = PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(traj, idx);
-            if (!PoseGraphDataBase::GetInstance().GetKeyFramePointCloud(points_name, vertex.id_, origin_points)) {
+            if (!PoseGraphDataBase::GetInstance().GetKeyFramePointCloud(points_label, vertex.id_, origin_points)) {
                 return false;
             }
             pcl::transformPointCloud (origin_points, trans_points, vertex.pose_.matrix()); // 转到世界坐标  
@@ -311,15 +323,15 @@ protected:
         while(1) {
             // 读取最新添加到数据库的关键帧进行回环检测  
             PoseGraphDataBase& poseGraph_database = PoseGraphDataBase::GetInstance(); 
-            if (wait_processed_keyframe_.empty()) {
+            if (wait_loop_detect_keyframe_.empty()) {
                 std::chrono::milliseconds dura(100);
                 std::this_thread::sleep_for(dura);
                 continue;  
             }
-            processed_queue_mt_.lock();
-            LoopKeyframeInfo curr_keyframe_info = wait_processed_keyframe_.front();
-            wait_processed_keyframe_.pop_front();  
-            processed_queue_mt_.unlock();
+            wait_loop_detect_queue_mt_.lock();
+            LoopKeyframeInfo curr_keyframe_info = wait_loop_detect_keyframe_.front();
+            wait_loop_detect_keyframe_.pop_front();  
+            wait_loop_detect_queue_mt_.unlock();
             // 回环频率控制 
             if (curr_keyframe_info.id_ - last_detect_id_ > DETECT_FRAME_INTERVAL_) {   
                 SlamLib::time::TicToc tt;  
@@ -338,13 +350,13 @@ protected:
                 // // tt.tic(); 
                 // std::vector<int> search_ind_;  
                 // std::vector<float> search_dis_;
-                // kdtreeHistoryKeyPoses->radiusSearch(
+                // kdtreeHistoryKeyPoses_->radiusSearch(
                 //     keyframe_position_cloud->points[curr_keyframe_.id_], 
                 //     2 * MAX_LOOP_DISTANCE_, 
                 //     search_ind_, 
                 //     search_dis_, 
                 //     0);    // 设置搜索的最大数量  如果是0表示不限制数量 
-                // // tt.toc("kdtreeHistoryKeyPoses->radiusSearch  ");  // 非常小  乎略不计  
+                // // tt.toc("kdtreeHistoryKeyPoses_->radiusSearch  ");  // 非常小  乎略不计  
 
                 // // 在候选关键帧集合中，找到与当前帧间隔较远的帧 作为候选帧  
                 // int short_range_loop_id = -1;
@@ -438,7 +450,7 @@ protected:
                         continue;  
                     } else {
                         // 获取回环的结点信息
-                        loop_vertex = poseGraph_database.GetVertexByDatabaseIndex(res.first);          
+                        loop_vertex = poseGraph_database.GetVertexByGlobalIndex(res.first);          
                         std::cout << "回环traj: " << loop_vertex.traj_ << std::endl;
                         // 当前帧位姿转换到世界系下
                         res.second = loop_vertex.pose_ * res.second;    // 位姿初始值
@@ -448,7 +460,7 @@ protected:
                         // 变化则要更新位姿搜索kdtree 
                         pcl::PointCloud<pcl::PointXYZ>::Ptr keyframe_position_cloud =
                             PoseGraphDataBase::GetInstance().GetKeyFramePositionCloud(loop_vertex.traj_);  
-                        kdtreeHistoryKeyPoses->setInputCloud(keyframe_position_cloud);
+                        kdtreeHistoryKeyPoses_->setInputCloud(keyframe_position_cloud);
                         last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();
                         std::cout << "last_keyframe_position_kdtree_size_: " << last_keyframe_position_kdtree_size_ << std::endl;
                         curr_trajectory_id_ = loop_vertex.traj_;  
@@ -466,7 +478,7 @@ protected:
                             // SlamLib::time::TicToc tt;
                             std::cout << SlamLib::color::GREEN << "updata loop kdtree! size: " 
                                 << last_keyframe_position_cloud->size() << SlamLib::color::RESET << std::endl;
-                            kdtreeHistoryKeyPoses->setInputCloud(last_keyframe_position_cloud);
+                            kdtreeHistoryKeyPoses_->setInputCloud(last_keyframe_position_cloud);
                             // tt.toc("updata loop kdtree ");    // 耗时 0.5 ms 
                             last_keyframe_position_cloud = keyframe_position_cloud;
                             last_keyframe_position_kdtree_size_ = keyframe_position_cloud->size();  
@@ -480,9 +492,9 @@ protected:
                     loop_vertex_position.x = loop_vertex.pose_.translation().x();
                     loop_vertex_position.y = loop_vertex.pose_.translation().y();
                     loop_vertex_position.z = loop_vertex.pose_.translation().z();
-                    std::vector<int> search_ind;
+                    std::vector<int> search_idx;
                     std::vector<float> search_dis;
-                    if(kdtreeHistoryKeyPoses->radiusSearch(loop_vertex_position, 30, search_ind, search_dis, 10) == 0) {
+                    if(kdtreeHistoryKeyPoses_->radiusSearch(loop_vertex_position, 30, search_idx, search_dis, 10) == 0) {
                         LOG(INFO) << "回环目标 kdtree 近邻搜索的数量为0";
                         continue;
                     }
@@ -517,7 +529,7 @@ protected:
                     // local map 
                     typename pcl::PointCloud<_PointType>::Ptr local_map(new pcl::PointCloud<_PointType>());
                     // std::cout << "粗匹配提取点云,name: " << name << std::endl;
-                    if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
+                    if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_idx, name, local_map)) {
                         continue;  
                     }
                     rough_registration_->SetInputSource(std::make_pair(name, local_map)); 
@@ -545,7 +557,7 @@ protected:
                     // 如果 细匹配所需要的local map 在之前粗匹配时  已经提取了   那么直接用原数据
                     if (localmaps.find(name) == localmaps.end()) {
                         typename pcl::PointCloud<_PointType>::Ptr local_map(new pcl::PointCloud<_PointType>());
-                        if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, name, local_map)) {
+                        if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_idx, name, local_map)) {
                             continue;  
                         }
                         localmaps[name] = local_map; 
@@ -573,7 +585,7 @@ protected:
                     align_evaluator_.SetTargetPoints(localmaps[evaluative_pointcloud_label_]); 
                 } else {  
                     typename pcl::PointCloud<_PointType>::Ptr evaluative_local_map(new pcl::PointCloud<_PointType>());
-                    if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_ind, evaluative_pointcloud_label_, evaluative_local_map)) {
+                    if (!ConstructLocalmapByTrajectoryNode(loop_vertex.traj_, search_idx, evaluative_pointcloud_label_, evaluative_local_map)) {
                         continue;  
                     }
                     align_evaluator_.SetTargetPoints(evaluative_local_map); 
@@ -656,20 +668,20 @@ private:
     double OVERLAP_THRESH_ = 0;
     double MIN_SCORE_ = 0;
 
-    std::mutex processed_queue_mt_;  
+    std::mutex wait_loop_detect_queue_mt_;  
     std::mutex loop_mt_; 
     KeyFrame::Ptr curr_keyframe_; 
     double last_detect_time_ = 0;    
     int32_t curr_trajectory_id_ = -1;   
     uint32_t last_detect_id_ = 0;  
     uint32_t last_keyframe_position_kdtree_size_ = 0;  
-    pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr kdtreeHistoryKeyPoses;  // 历史关键帧的位姿kdtree 
+    pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr kdtreeHistoryKeyPoses_;  // 历史关键帧的位姿kdtree 
     std::thread loop_thread_;  
 
     RegistrationPtr rough_registration_;
     RegistrationPtr refine_registration_;
 
-    std::deque<LoopKeyframeInfo> wait_processed_keyframe_;  
+    std::deque<LoopKeyframeInfo> wait_loop_detect_keyframe_;  
     std::deque<LoopEdge> new_loops_;  
     // 针对 _PointType 点云的 匹配质量评估器 
     SlamLib::pointcloud::PointCloudAlignmentEvaluate<_PointType> align_evaluator_;

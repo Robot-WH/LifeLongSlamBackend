@@ -5,14 +5,13 @@
  * @version 1.0
  * 
  * @copyright Copyright (c) 2023 
- * 
  */
 #pragma once
 #include <Eigen/Dense>
 #include <boost/filesystem.hpp>
 #include "graph.pb.h"
 namespace lifelong_backend {
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 static lifelong_backend::transform::proto::Vector3d ToProto(const Eigen::Vector3d& vector) {
     lifelong_backend::transform::proto::Vector3d v;
     v.set_x(vector.x());
@@ -21,6 +20,7 @@ static lifelong_backend::transform::proto::Vector3d ToProto(const Eigen::Vector3
     return v;
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 static lifelong_backend::transform::proto::Quaterniond ToProto(const Eigen::Quaterniond& q) {
     lifelong_backend::transform::proto::Quaterniond proto_q;
     proto_q.set_x(q.x());
@@ -30,14 +30,17 @@ static lifelong_backend::transform::proto::Quaterniond ToProto(const Eigen::Quat
     return proto_q;
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 static Eigen::Vector3d ProtoTo(const lifelong_backend::transform::proto::Vector3d& proto_vector) {
     return Eigen::Vector3d(proto_vector.x(), proto_vector.y(), proto_vector.z());
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 static Eigen::Quaterniond ProtoTo(const lifelong_backend::transform::proto::Quaterniond& proto_q) {
     return Eigen::Quaterniond(proto_q.w(), proto_q.x(), proto_q.y(), proto_q.z());
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 static Eigen::Isometry3d ProtoTo(const lifelong_backend::transform::proto::Transform3d& transform) {
     Eigen::Isometry3d T;
     T.translation() = ProtoTo(transform.translation());
@@ -45,6 +48,7 @@ static Eigen::Isometry3d ProtoTo(const lifelong_backend::transform::proto::Trans
     return T;
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 /**
  * @brief: pose-graph 顶点
  */
@@ -52,11 +56,13 @@ struct Vertex {
     Vertex() : id_(0), traj_(0), pose_(Eigen::Isometry3d::Identity()) {}
     Vertex(uint64_t const& id, uint16_t const& traj, Eigen::Isometry3d const& pose) 
         : id_(id), traj_(traj), pose_(pose) {}
-    
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////
     void SetPose(Eigen::Isometry3d const& pose) {
         pose_ = pose;  
     }
-    
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief 
      * 
@@ -103,6 +109,7 @@ struct Vertex {
         }
     }
 
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief 
      * 
@@ -154,8 +161,7 @@ struct Vertex {
     Eigen::Isometry3d pose_;
 }; 
 
-
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 /**
  * @brief: pose-graph 边
  * @details: 边连接的节点idx，约束 + 协方差  
@@ -169,6 +175,7 @@ struct Edge {
                 : traj_(traj), id_(id), link_id_(head_id, tail_id), link_head_local_index_(link_head_local_index), 
                     constraint_(constraint), noise_(noise) {}
 
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief 
      * 
@@ -210,6 +217,7 @@ struct Edge {
         }
     }
 
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief 
      * 
@@ -255,16 +263,13 @@ struct Edge {
     Eigen::Matrix<double, 1, 6> noise_ = Eigen::Matrix<double, 1, 6>::Zero();     // 6 dof 约束的 噪声 向量  xyz  + rpy
 }; 
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
 /**
  * @brief 回环边
  *  包含session信息
  */
 struct LoopEdge : public Edge {
     LoopEdge() {}
-    // LoopEdge(int16_t traj, int16_t loop_traj, uint64_t id, uint64_t head_id, uint64_t tail_id, 
-    //         const uint32_t& link_head_local_index, Eigen::Isometry3d const& constraint, 
-    //         Eigen::Matrix<double, 1, 6> const& noise) 
-    //             : Edge(traj, id, head_id, tail_id, link_head_local_index, constraint, noise), loop_traj_(loop_traj) {}
     int16_t loop_traj_ = -1;   // 闭环的轨迹的id   
     Eigen::Isometry3d loop_vertex_pose_; 
 };
