@@ -21,7 +21,7 @@
 namespace lifelong_backend {
 namespace option {
 struct LoopDetectionOption {
-    double score_thresh;
+    double inlier_dis_thresh;
     double overlap_thresh;
     double min_score;  
 };
@@ -58,7 +58,7 @@ private:
         uint32_t local_index_;
     };
 public:
-    LoopDetection(option::LoopDetectionOption option) : SCORE_THRESH_(option.score_thresh), 
+    LoopDetection(option::LoopDetectionOption option) : INLIER_DIS_THRESH_(option.inlier_dis_thresh),
             OVERLAP_THRESH_(option.overlap_thresh), MIN_SCORE_(option.min_score) {
         kdtreeHistoryKeyPoses_.reset(new pcl::KdTreeFLANN<pcl::PointXYZ>()); // 关键帧位姿管理树
         loop_thread_ = std::thread(&LoopDetection::LoopDetect, this);  
@@ -191,7 +191,7 @@ public:
             scan_in.at(checked_label), res.second.matrix().cast<float>(), 0.2, 0.8); 
         tt.toc("Relocalization ");
         // score的物理意义 是 均方残差
-        if (align_param.first  > 0.1) {
+        if (align_param.first  > MIN_SCORE_) {
             LOG(INFO) << "score: " << align_param.first << SlamLib::color::RESET;
             // 对回环匹配失败的进行可视化检测
             #if (LOOP_DEBUG == 1)
@@ -610,7 +610,7 @@ protected:
                 std::pair<double, double> eva = align_evaluator_.AlignmentScore(
                     evaluative_curr_scan, 
                     res.second.matrix().cast<float>(), 
-                    SCORE_THRESH_, 
+                    INLIER_DIS_THRESH_,
                     OVERLAP_THRESH_); 
                 std::cout << SlamLib::color::GREEN << "loop refine match converged, score: " 
                     << eva.first << std::endl;
@@ -664,7 +664,7 @@ private:
     uint16_t MIN_LOOP_FRAME_INTERVAL_ = 50;    //  一个回环的最小关键帧间隔  
     double MAX_LOOP_DISTANCE_ = 50;   //  回环之间   的最大距离   单位m 
     double MAX_ODOM_ERROR_ = 50;  // 最大里程计误差  
-    double SCORE_THRESH_ = 0;
+    double INLIER_DIS_THRESH_ = 0;
     double OVERLAP_THRESH_ = 0;
     double MIN_SCORE_ = 0;
 

@@ -42,10 +42,10 @@ LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string 
     option::LoopDetectionOption loop_detection_option;
     loop_detection_option.min_score = yaml["loop_detect"]["evaluate"]["min_score"].as<float>();
     loop_detection_option.overlap_thresh = yaml["loop_detect"]["evaluate"]["overlap_thresh"].as<float>();
-    loop_detection_option.score_thresh = yaml["loop_detect"]["evaluate"]["score_thresh"].as<float>();
+    loop_detection_option.inlier_dis_thresh = yaml["loop_detect"]["evaluate"]["inlier_dis_thresh"].as<float>();
     std::cout << "闭环检测参数，min_score：" << loop_detection_option.min_score
         << " ,overlap_thresh: " << loop_detection_option.overlap_thresh
-        << " ,score_thresh: " << loop_detection_option.score_thresh << std::endl;
+        << " ,inlier_dis_thresh: " << loop_detection_option.inlier_dis_thresh << std::endl;
     loop_detect_ = std::make_unique<LoopDetection<_FeatureT>>(loop_detection_option); 
     work_mode_ = WorkMode::SLEEP;  
     mapping_thread_ = std::thread(&LifeLongBackEndOptimization::mapping, this);  // 启动建图线程  
