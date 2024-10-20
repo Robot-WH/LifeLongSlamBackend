@@ -75,7 +75,7 @@ std::vector<uint16_t> LifeLongBackEndOptimization<_FeatureT>::Load(std::string s
     }  
     loop_detect_->Load(traj_space_path_, PoseGraphDataBase::GetInstance().GetDataBaseInfo().last_keyframe_id); // 加载场景识别数据库 
     traj_id_list = lifelong_backend::PoseGraphDataBase::GetInstance().GetTrajectoryIDList();
-    work_mode_ = WorkMode::RELOCALIZATION;   // 默认为建图模式 
+    work_mode_ = WorkMode::RELOCALIZATION;   // 默认为重定位模式
     LOG(INFO) << SlamLib::color::GREEN << "载入历史数据库，准备重定位......" << SlamLib::color::RESET;
     trajectory_ = traj_id_list.front();      // 默认使用轨迹
     return traj_id_list;
@@ -228,6 +228,7 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
         static uint8_t reloc_times = 0;  
         // 重定位失败 ，若开启地图更新，此时会重新建立一条新的轨迹，否则延迟一下，继续重定位 
         if (reloc_res.traj_id_ < 0) {
+            std::cout << "xxxxxxxxxxxxxxxxx重定位失败xxxxxxxxxxxxxxxxx" << "\n";
             if (enable_lifelong_) {
                 // 连续几帧重定位失败则建立新地图 
                 if (reloc_times > 10) {
@@ -241,13 +242,17 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
                 reloc_times++;
             }
         } else {
+            std::cout << "^^^^^^^^^^^^^^^^重定位成功^^^^^^^^^^^^^^^^^" << "\n";
             reloc_times = 0;
             work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
             this->trans_odom2map_ = reloc_res.pose_ * odom.inverse(); 
             IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
-            trajectory_ = reloc_res.traj_id_;
-            pose_graph_optimizer_->Rebuild(PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_),
-                                                        PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_));  
+            // 如果重定位的轨迹和之前的轨迹不同，那么需要重建位姿图
+            if (trajectory_ != reloc_res.traj_id_) {
+              trajectory_ = reloc_res.traj_id_;
+              pose_graph_optimizer_->Rebuild(PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_),
+                                                          PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_));
+            }
             // 可视化历史轨迹
             KeyFrameInfo<_FeatureT> keyframe_info; 
             keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_); 
