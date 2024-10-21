@@ -77,7 +77,7 @@ std::vector<uint16_t> LifeLongBackEndOptimization<_FeatureT>::Load(std::string s
     traj_id_list = lifelong_backend::PoseGraphDataBase::GetInstance().GetTrajectoryIDList();
     work_mode_ = WorkMode::RELOCALIZATION;   // 默认为重定位模式
     LOG(INFO) << SlamLib::color::GREEN << "载入历史数据库，准备重定位......" << SlamLib::color::RESET;
-    trajectory_ = traj_id_list.front();      // 默认使用轨迹
+    trajectory_ = -1;
     return traj_id_list;
 }
 
@@ -123,6 +123,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::SetTrajectory(uint16_t traj_id) {
     KeyFrameInfo<_FeatureT> keyframe_info; 
     keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_); 
     keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_); 
+    pose_graph_optimizer_->Rebuild(keyframe_info.vertex_database_, keyframe_info.edge_database_);
     IPC::Server::Instance().Publish("keyframes_info", keyframe_info); 
     std::cout << "vertex_database_ size: " << keyframe_info.vertex_database_.size() << std::endl;
     // 更新全局地图  
@@ -510,25 +511,25 @@ void LifeLongBackEndOptimization<_FeatureT>::mapping() {
         if (optimize()) {   
             // std::cout << "optimize ok" << std::endl;
             // SlamLib::time::TicToc tt;
-            // 优化完成后 更新数据库  
+            // 优化完成后 更新数据库
             std::vector<Vertex>& curr_traj_vertex = database.GetTrajectoryVertex(trajectory_);
             for (auto& vertex : curr_traj_vertex) {
-                vertex.pose_ = pose_graph_optimizer_->GetNodePose(vertex.id_); 
+                vertex.pose_ = pose_graph_optimizer_->GetNodePose(vertex.id_);
             }
-            this->trans_odom2map_ = pose_graph_optimizer_->GetNodePose(last_add_database_keyframe_.id_) 
-                                                                    * last_add_database_keyframe_.odom_.inverse();  
+            this->trans_odom2map_ = pose_graph_optimizer_->GetNodePose(last_add_database_keyframe_.id_)
+                                                                    * last_add_database_keyframe_.odom_.inverse();
             IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
             // 如果是lifelong模式，产生回环说明进入历史场景下，因此尝试进入定位状态
             if (enable_lifelong_ && has_loop_) {
-                // 进入定位模式前需要更新一下可视化 
-                KeyFrameInfo<_FeatureT> keyframe_info; 
-                keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_); 
-                keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_); 
-                keyframe_info.new_keyframes_ = this->new_keyframe_queue_;  
-                IPC::Server::Instance().Publish("keyframes_info", keyframe_info);   // 发布图关键帧  
-                work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
+                // 进入定位模式前需要更新一下可视化
+                KeyFrameInfo<_FeatureT> keyframe_info;
+                keyframe_info.vertex_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(trajectory_);
+                keyframe_info.edge_database_ = PoseGraphDataBase::GetInstance().GetTrajectoryEdge(trajectory_);
+                keyframe_info.new_keyframes_ = this->new_keyframe_queue_;
+                IPC::Server::Instance().Publish("keyframes_info", keyframe_info);   // 发布图关键帧
+                work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式
                 // std::cout << "建图线程：进入定位模式！" << std::endl;
-                has_loop_ = false;  
+                has_loop_ = false;
             }
         }
         std::chrono::milliseconds dura(1000);
@@ -724,7 +725,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::optimize() {
     }  
     // 执行优化
     SlamLib::time::TicToc tt;
-    pose_graph_optimizer_->Optimize(has_loop_);  
+    pose_graph_optimizer_->Optimize(has_loop_);
     tt.toc("pose_graph_optimizer_->Optimize ");
     do_optimize = false;  
     return true;  

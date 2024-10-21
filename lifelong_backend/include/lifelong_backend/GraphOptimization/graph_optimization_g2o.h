@@ -7,9 +7,7 @@
  * @Description: 
  * @Others: 
  */
-
 #pragma once 
-
 #include <g2o/stuff/macros.h>
 #include <g2o/core/factory.h>
 #include <g2o/core/block_solver.h>
@@ -24,11 +22,7 @@
 #include <g2o/types/slam3d/types_slam3d.h>
 #include <g2o/types/slam3d/edge_se3_pointxyz.h>
 #include <g2o/types/slam3d_addons/types_slam3d_addons.h>
-
-
-
 #include "graph_optimization.h"
-
 namespace g2o {
 class VertexSE3;
 class VertexPlane;

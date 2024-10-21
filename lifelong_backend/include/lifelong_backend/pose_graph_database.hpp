@@ -157,8 +157,6 @@ public:
             database_vertex_info_.emplace_back(vertex.traj_, traj_vertex_map_[vertex.traj_].size()); 
             vertex_localIndex[vertex.id_] = traj_vertex_map_[vertex.traj_].size();  
             traj_vertex_map_[vertex.traj_].push_back(vertex); 
-            traj_vertexGlobalIndex_map_[vertex.traj_].push_back(vertex_database_.size());  
-            vertex_database_.push_back(vertex); 
             AddPosePoint(vertex.traj_, vertex.pose_);
             if (vertex.traj_ != traj) {
                 continue;  
@@ -167,9 +165,9 @@ public:
         }
         tt.toc("load vertex: ");
 
-        if (vertex_container_.size() == 0) {
-            return false;  
-        }
+        // if (vertex_container_.size() == 0) {
+        //     return false;
+        // }
 
         curr_id = 0;  
         tt.tic(); 
@@ -357,12 +355,12 @@ public:
      * 
      * @return uint64_t 
      */
-    uint64_t GetGraphVertexNum() {
-        database_mt_.lock_shared();
-        uint64_t num = vertex_container_.size();
-        database_mt_.unlock_shared();
-        return num;  
-    }
+    // uint64_t GetGraphVertexNum() {
+    //     database_mt_.lock_shared();
+    //     uint64_t num = vertex_container_.size();
+    //     database_mt_.unlock_shared();
+    //     return num;
+    // }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
@@ -443,8 +441,6 @@ public:
      * @return Vertex 
      */
     Vertex GetVertexByTrajectoryLocalIndex(const uint16_t& traj, const uint64_t& local_index) const {
-        // uint64_t database_idx = traj_vertexGlobalIndex_map_.at(traj)[index];  
-        // return vertex_database_[database_idx];
         // std::cout << "GetVertexByTrajectoryLocalIndex, index: " << local_index << std::endl;
         return traj_vertex_map_.at(traj)[local_index];  
     }
@@ -637,44 +633,6 @@ public:
     
     //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
-     * @brief Get the Localmap From Trajectory Node Index object
-     *                      将指定轨迹的指定index结点的点云拼接成local map  
-     * @tparam _PointT 
-     * @param traj 选择的轨迹
-     * @param search_ind 用来拼接点云的结点的序号 
-     * @param points_name 选择的点云表示名
-     * @param local_map 
-     * @return true 
-     * @return false 
-     */
-    template<typename _PointT>
-    bool GetLocalmapFromTrajectoryNodeIndex(uint16_t traj, std::vector<int> const& search_ind,
-            std::string const& points_label, typename pcl::PointCloud<_PointT>::Ptr& local_map) {
-        pcl::PointCloud<_PointT> origin_points;   // 激光坐标系下的点云
-        pcl::PointCloud<_PointT> trans_points;   // 转换到世界坐标系下的点云 
-        typename pcl::PointCloud<_PointT>::Ptr map(new pcl::PointCloud<_PointT>()); 
-        // 遍历每一个index的结点
-        for (const int& idx : search_ind ) {
-            uint64_t database_idx = traj_vertexGlobalIndex_map_[traj][idx];  
-            Vertex vertex = vertex_database_[database_idx];
-
-            std::string file_path = traj_space_path_ + "/KeyFramePoints/key_frame_" 
-                + points_label + std::to_string(vertex.id_) + ".pcd";
-
-            if (pcl::io::loadPCDFile(file_path, origin_points) < 0) {
-                return false;
-            }
-
-            pcl::transformPointCloud (origin_points, trans_points, vertex.pose_.matrix()); // 转到世界坐标  
-            *map += trans_points; 
-        }
-
-        local_map = map;  
-        return true;  
-    }
-
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////
-    /**
      * @brief: 获取keyframe 的一个 名字为 name 的点云数据 
      * @param name 点云名称
      * @param global_id 关键帧在数据库中的全局id
@@ -821,7 +779,6 @@ public:
         traj_keyframePositionCloud_.clear();
         traj_vertex_map_.clear();
         traj_edge_map_.clear(); 
-        traj_vertexGlobalIndex_map_.clear(); 
     }
 protected:
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -850,13 +807,10 @@ private:
     std::vector<std::pair<uint16_t, uint32_t>> database_vertex_info_; 
     // <轨迹id，Vertex的集合(排列顺序按照id的从小到大，即先创建的Vertex在前，后创建的在后)>    
     std::unordered_map<uint16_t, std::vector<Vertex>> traj_vertex_map_;
-    // <轨迹id，Vertex全局index(在整个轨迹空间中的index)的集合>
-    std::unordered_map<uint16_t, std::deque<uint64_t>> traj_vertexGlobalIndex_map_;
     // <轨迹id，整个轨迹所有edge的集合(按创建时间先后顺序)>
     std::unordered_map<uint16_t, std::vector<Edge>> traj_edge_map_;
-    std::vector<Vertex> vertex_database_;    // 缓存数据库中全部结点信息
-    std::deque<Edge> edge_container_; // 保存图节点
-    std::deque<Vertex> vertex_container_; // 保存图的边   
+    std::deque<Edge> edge_container_; // 保存图的边
+    std::deque<Vertex> vertex_container_;   // 保存图节点
     /**
      * @todo 尝试下面的数据结构  
      * 

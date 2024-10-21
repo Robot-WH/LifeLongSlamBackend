@@ -662,16 +662,16 @@ private:
     double DETECT_TIME_INTERVAL_ = 1.0;   // 检测的最小时间间隔    s   
     uint16_t DETECT_FRAME_INTERVAL_ = 3;   // 检测的最小帧间隔     
     uint16_t MIN_LOOP_FRAME_INTERVAL_ = 50;    //  一个回环的最小关键帧间隔  
-    double MAX_LOOP_DISTANCE_ = 50;   //  回环之间   的最大距离   单位m 
-    double MAX_ODOM_ERROR_ = 50;  // 最大里程计误差  
-    double INLIER_DIS_THRESH_ = 0;
-    double OVERLAP_THRESH_ = 0;
-    double MIN_SCORE_ = 0;
+    double MAX_LOOP_DISTANCE_ = 50.0;   //  回环之间   的最大距离   单位m
+    double MAX_ODOM_ERROR_ = 50.0;  // 最大里程计误差
+    double INLIER_DIS_THRESH_ = 0.0;
+    double OVERLAP_THRESH_ = 0.0;
+    double MIN_SCORE_ = 0.0;
 
     std::mutex wait_loop_detect_queue_mt_;  
     std::mutex loop_mt_; 
     KeyFrame::Ptr curr_keyframe_; 
-    double last_detect_time_ = 0;    
+    double last_detect_time_ = 0.0;
     int32_t curr_trajectory_id_ = -1;   
     uint32_t last_detect_id_ = 0;  
     uint32_t last_keyframe_position_kdtree_size_ = 0;  

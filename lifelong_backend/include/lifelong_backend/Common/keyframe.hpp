@@ -75,27 +75,6 @@ public:
   bool IMU_valid_ = false;     // 是否使用IMU姿态观测 
   bool planeConstraint_valid_ = false;  // 是否使用 平面约束观测 
 };
-
-// /**
-//  * @brief 
-//  */
-// struct KeyFrameSimplify
-// {
-//   public:
-//     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-//     using PointT = KeyFrame::PointT;
-//     using Ptr = std::shared_ptr<KeyFrameSnapshot>;
-
-//     KeyFrameSimplify(const KeyFrame::Ptr& key);
-//     KeyFrameSimplify(const Eigen::Isometry3d& pose, CloudContainer& cloud);
-
-//     ~KeyFrameSimplify();
-
-//   public:
-//     Eigen::Isometry3d pose;   // pose estimated by graph optimization
-//     CloudContainer cloud;  // point cloud
-// };
 }
 
 

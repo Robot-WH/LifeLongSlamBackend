@@ -8,12 +8,10 @@
  * 
  */
 #pragma once 
-
 #include <string>
 #include <deque>
 #include <Eigen/Dense>
 #include "../graph.hpp"
-
 namespace lifelong_backend {
 class GraphOptimizerInterface {
 public:

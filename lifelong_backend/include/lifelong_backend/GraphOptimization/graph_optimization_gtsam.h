@@ -8,7 +8,6 @@
  * @Others: 
  */
 #pragma once 
-
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/slam/PriorFactor.h>
@@ -23,14 +22,11 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/nonlinear/ISAM2.h>
 #include "graph_optimization.h"
-
 namespace lifelong_backend {
-    
-class GtsamGraphOptimizer: public GraphOptimizerInterface {
+    class GtsamGraphOptimizer: public GraphOptimizerInterface {
 public:
     GtsamGraphOptimizer();
     void Rebuild(std::vector<Vertex> const& vertexs, std::vector<Edge> const& edges) override; 
-
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
      * @brief: 
