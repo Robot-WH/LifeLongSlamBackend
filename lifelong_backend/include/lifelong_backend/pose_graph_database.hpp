@@ -29,7 +29,7 @@ private:
         uint16_t session_cnt;  //  阶段，只要重定位失败就会新建一个轨迹，session ++ 
         uint16_t trajectory_num;   // 当前数据库存在的轨迹个数  
         uint64_t last_keyframe_id;  
-        uint64_t edge_cnt; 
+        uint64_t last_edge_id;
     };
 public:
     //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -72,7 +72,7 @@ public:
         ofs << "session_cnt " << info_.session_cnt << "\n";
         ofs << "trajectory_num " << traj_vertex_map_.size() << "\n";
         ofs << "last_keyframe_id " << info_.last_keyframe_id << "\n";    // last_keyframe_id 比当前保存下来的最后一个关键帧的id大1
-        ofs << "edge_cnt " << info_.edge_cnt << "\n";
+        ofs << "last_edge_id " << info_.last_edge_id << "\n";
     }
     
     //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -93,7 +93,7 @@ public:
             info_.session_cnt = 0;  
             info_.trajectory_num = 0;  
             info_.last_keyframe_id = 0;  
-            info_.edge_cnt = 0;  
+            info_.last_edge_id = 0;
             // 创建文件夹
             boost::filesystem::create_directory(traj_space_path_ + "/KeyFrameDescriptor");
             boost::filesystem::create_directory(traj_space_path_ + "/KeyFramePoints");
@@ -115,9 +115,9 @@ public:
             } else if (token == "last_keyframe_id") {
                 ifs >> info_.last_keyframe_id; 
                 std::cout << "last_keyframe_id: " << info_.last_keyframe_id <<std::endl;
-            } else if (token == "edge_cnt") {
-                ifs >> info_.edge_cnt; 
-                std::cout << "edge_cnt: " << info_.edge_cnt << SlamLib::color::RESET <<std::endl;
+            } else if (token == "last_edge_id") {
+                ifs >> info_.last_edge_id;
+                std::cout << "last_edge_id: " << info_.last_edge_id << SlamLib::color::RESET <<std::endl;
             }
         }
 
@@ -164,15 +164,10 @@ public:
             AddVertex(vertex);
         }
         tt.toc("load vertex: ");
-
-        // if (vertex_container_.size() == 0) {
-        //     return false;
-        // }
-
         curr_id = 0;  
         tt.tic(); 
         // 遍历磁盘全部edge数据，将属于traj轨迹的加载进来  
-        while(curr_id < info_.edge_cnt) {
+        while(curr_id < info_.last_edge_id) {
             Edge edge;  
             if (!edge.Load(traj_space_path_ + "/Edge/id_" + std::to_string(curr_id))) {
                 curr_id++;  
@@ -253,7 +248,6 @@ public:
      * @param vertex 
      */
     void AddVertex(const Vertex& vertex) {
-        vertex_container_.push_back(vertex);
         AddPosePoint(vertex.pose_);  
     }
 
@@ -314,9 +308,9 @@ public:
     inline void AddEdge(const int16_t& traj, const uint64_t& head_id, const uint64_t& tail_id, 
             const uint32_t& link_head_local_index, const Eigen::Isometry3d& constraint, 
             const Eigen::Matrix<double, 1, 6>& noise) {
-        traj_edge_map_[traj].emplace_back(traj, info_.edge_cnt, head_id, tail_id, 
+        traj_edge_map_[traj].emplace_back(traj, info_.last_edge_id, head_id, tail_id,
                                                                                         link_head_local_index, constraint, noise);
-        ++info_.edge_cnt;
+        ++info_.last_edge_id;
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -327,8 +321,8 @@ public:
      */
     inline void AddEdge(const uint16_t& traj, Edge& edge, bool new_edge = true) {
         if (new_edge) {
-            edge.id_ = info_.edge_cnt; 
-            ++info_.edge_cnt;
+            edge.id_ = info_.last_edge_id;
+            ++info_.last_edge_id;
         }
         edge.traj_ = traj;  
         traj_edge_map_[traj].push_back(edge);
@@ -348,19 +342,6 @@ public:
         }
         return true;  
     }
-
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////
-    /**
-     * @brief 读取当前posegraph中节点的数量 
-     * 
-     * @return uint64_t 
-     */
-    // uint64_t GetGraphVertexNum() {
-    //     database_mt_.lock_shared();
-    //     uint64_t num = vertex_container_.size();
-    //     database_mt_.unlock_shared();
-    //     return num;
-    // }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////
     /**
@@ -564,15 +545,6 @@ public:
      */
     const auto& GetTrajectoryEdge(const uint16_t& traj) {
         return traj_edge_map_[traj];
-    }
-
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////
-    /**
-     * @brief Get the All Edge object
-     * @return std::deque<Edge> const& 
-     */
-    std::deque<Edge> const& GetAllEdge() {
-        return edge_container_;
     }
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -809,8 +781,6 @@ private:
     std::unordered_map<uint16_t, std::vector<Vertex>> traj_vertex_map_;
     // <轨迹id，整个轨迹所有edge的集合(按创建时间先后顺序)>
     std::unordered_map<uint16_t, std::vector<Edge>> traj_edge_map_;
-    std::deque<Edge> edge_container_; // 保存图的边
-    std::deque<Vertex> vertex_container_;   // 保存图节点
     /**
      * @todo 尝试下面的数据结构  
      * 
