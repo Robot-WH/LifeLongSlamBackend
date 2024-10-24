@@ -127,7 +127,7 @@ bool LifeLongBackEndOptimization<_FeatureT>::SetTrajectory(uint16_t traj_id) {
     IPC::Server::Instance().Publish("keyframes_info", keyframe_info); 
     std::cout << "vertex_database_ size: " << keyframe_info.vertex_database_.size() << std::endl;
     // 更新全局地图  
-    buildGlobalMap(trajectory_, "filtered", 0.2);
+    buildGlobalMap(trajectory_, "filtered", 0.3);
     IPC::Server::Instance().Publish("global_map", global_map_);   // 发布地图
     return true;  
 }
@@ -135,8 +135,8 @@ bool LifeLongBackEndOptimization<_FeatureT>::SetTrajectory(uint16_t traj_id) {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 template<typename _FeatureT>
 bool LifeLongBackEndOptimization<_FeatureT>::buildGlobalMap(const uint16_t& traj, 
-                                                                                                                                            const std::string& points_label,
-                                                                                                                                            const float& resolution) {
+                                                                                                                                      const std::string& points_label,
+                                                                                                                                      const float& resolution) {
     const auto& traj_vertexs = PoseGraphDataBase::GetInstance().GetTrajectoryVertex(traj); 
     pcl::PointCloud<_FeatureT> origin_points;   // 激光坐标系下的点云
     pcl::PointCloud<_FeatureT> trans_points;   // 转换到世界坐标系下的点云 
@@ -223,17 +223,17 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
     }
     if (work_mode_ == WorkMode::RELOCALIZATION) {
         // 重定位
-        LOG(INFO) << SlamLib::color::GREEN << "-----------------RELOCALIZATION!-----------------" 
+        LOG(INFO) << SlamLib::color::GREEN << "重定位...." 
             << SlamLib::color::RESET;
         RelocResult reloc_res = loop_detect_->Relocalization(lidar_data.pointcloud_data_); 
         static uint8_t reloc_times = 0;  
         // 重定位失败 ，若开启地图更新，此时会重新建立一条新的轨迹，否则延迟一下，继续重定位 
         if (reloc_res.traj_id_ < 0) {
-            std::cout << "xxxxxxxxxxxxxxxxx重定位失败xxxxxxxxxxxxxxxxx" << "\n";
+            std::cout << "重定位失败！" << "\n";
             if (enable_lifelong_) {
                 // 连续几帧重定位失败则建立新地图 
                 if (reloc_times > 10) {
-                    std::cout << SlamLib::color::GREEN << "重定位失败，新建轨迹..." 
+                    std::cout << SlamLib::color::GREEN << "重定位失败，新建轨迹...." 
                         << SlamLib::color::RESET << std::endl;
                     reloc_times = 0;
                     work_mode_ = WorkMode::MAPPING;
@@ -243,7 +243,7 @@ void LifeLongBackEndOptimization<_FeatureT>::AddKeyFrame(
                 reloc_times++;
             }
         } else {
-            std::cout << "^^^^^^^^^^^^^^^^重定位成功^^^^^^^^^^^^^^^^^" << "\n";
+            std::cout << "重定位成功！" << "\n";
             reloc_times = 0;
             work_mode_ = WorkMode::LOCALIZATION; // 进入定位模式 
             this->trans_odom2map_ = reloc_res.pose_ * odom.inverse(); 
@@ -303,17 +303,16 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
         // 如果没有新的关键帧  
         if (this->new_keyframe_queue_.empty()) {
             this->keyframe_queue_sm_.unlock_shared();
-            std::chrono::milliseconds dura(10);
+            std::chrono::milliseconds dura(100);
             std::this_thread::sleep_for(dura);
             continue;  
         }
-        // static double avg_t = 0;
-        // static int n = 1;  
         // 降低定位频率  
-        static int interval = 1;
+        static bool need_rebuild_submap = true;  
+        static int interval = 2;
         if (interval == 0) {
-            interval = 1;  
-            std::cout << SlamLib::color::GREEN << "-----------------LOCALIZATION!-----------------" << std::endl;
+            interval = 2;  
+            std::cout << SlamLib::color::GREEN << "定位...." << std::endl;
             // 取出最早的帧  进行map匹配
             /**
              * @todo 这里读取deque时被读锁上锁了，有没有必要呢？了解deque在写数据时，引用有不有可能会失效  
@@ -322,88 +321,106 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
             SlamLib::FeaturePointCloudContainer<_FeatureT>& points = this->new_keyframe_points_queue_.front();
             this->keyframe_queue_sm_.unlock_shared();    // 读锁  解锁
             Eigen::Isometry3d pose_in_map = this->trans_odom2map_ * keyframe.odom_;  
-            pcl::PointXYZ curr_pos(pose_in_map.translation().x(), 
-                                                            pose_in_map.translation().y(), 
-                                                            pose_in_map.translation().z());
+            bool is_submap_new = false; 
             std::vector<int> search_ind;
             std::vector<float> search_dis;   // 这个是距离的平方 !! 
-            SlamLib::time::TicToc tt;  
-            loop_detect_->HistoricalPositionSearch(trajectory_, curr_pos, 20, 10, search_ind, search_dis);   // 搜索最近的历史关键帧
-            // tt.toc("HistoricalPositionSearch ");
-            /**
-             *如果啥都搜不到呢？   如果啥都搜不到说明当前位姿不确定了需要重定位
-             */                    
-            if (!search_ind.empty()) {
-                LocalizationPointsInfo<_FeatureT> loc_points;  
-                tt.tic();
-                // 给局部地图进行降采样的滤波器
-                SlamLib::pointcloud::FilterOption::VoxelGridFilterOption filter_option;
-                filter_option.mode_ = "VoxelGrid";
-                filter_option.voxel_grid_option_.resolution_ = 0.3;  
-                SlamLib::pointcloud::VoxelGridFilter<_FeatureT> downsample(filter_option);
-                /**
-                 * @todo 目前是直接提取一定范围的关键帧组合为定位地图，之后要改为，每个区域维护一个submap，
-                 *  直接提取这个区域的submap进行定位，这个submap也具备更新的能力 
-                 */
-                // 遍历定位所需的所有点云标识名   将定位所需要的点云local map 提取出来 
-                for (auto const& label : localize_registration_->GetUsedPointsName()) {   
-                    // 从数据库中查找 名字为 label 的点云 
-                    PointCloudPtr local_map(new pcl::PointCloud<_FeatureT>());
-                    if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, label, local_map)) {
-                        work_mode_ = WorkMode::RELOCALIZATION;
-                        continue; 
+
+            if (need_rebuild_submap) {
+                pcl::PointXYZ curr_pos(pose_in_map.translation().x(), 
+                                                            pose_in_map.translation().y(), 
+                                                            pose_in_map.translation().z());
+
+                SlamLib::time::TicToc tt;  
+                loop_detect_->HistoricalPositionSearch(trajectory_, curr_pos, 80, 200, search_ind, search_dis);   // 搜索最近的历史关键帧
+                // tt.toc("HistoricalPositionSearch ");
+
+                if (!search_ind.empty()) {
+                    // 从搜索出来的帧中均匀采样20帧
+                    KeyFrameInfo<_FeatureT> keyframe_info; 
+                    int step = search_ind.size() / 20;  
+                    std::vector<int> select_ind;
+                    for (int i = 0; i < 20; i++) {
+                        select_ind.push_back(search_ind[i * step]);
+                        keyframe_info.localization_keyframe_pose_.push_back(
+                            PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(trajectory_, search_ind[i * step]).pose_
+                        );
                     }
-                    // std::cout << "before filter size: " << local_map->size() << std::endl;
-                    downsample.Filter(local_map); 
-                    // std::cout << "after filter size: " << local_map->size() << std::endl;
-                    localize_registration_->SetInputSource(std::make_pair(label, local_map)); 
-                    loc_points.map_[label] = local_map; 
-                    // SlamLib::time::TicToc tt;  
-                    IPC::Server::Instance().Publish("localize_map", local_map);   // 发布地图用于可视化    
-                    // tt.toc("Publish ");   // 1ms
-                }
-                tt.toc("build map ");
-                loc_points.time_stamps_ = keyframe.time_stamp_; 
-                localize_registration_->SetInputTarget(points);
-                tt.tic(); 
-                if (!localize_registration_->Solve(pose_in_map)) {
-                    LOG(WARNING)<<SlamLib::color::RED<<"错误: 定位匹配无法收敛！转换到重定位模式..."
-                        <<SlamLib::color::RESET;
+                    // 将用于定位的关键帧信息进行可视化
+                    IPC::Server::Instance().Publish("keyframes_info", keyframe_info);  
+                    std::unordered_map<std::string, typename pcl::PointCloud<_FeatureT>::ConstPtr> submap;
+                    // 给局部地图进行降采样的滤波器
+                    SlamLib::pointcloud::FilterOption::VoxelGridFilterOption filter_option;
+                    filter_option.mode_ = "VoxelGrid";
+                    filter_option.voxel_grid_option_.resolution_ = 0.3;  
+                    SlamLib::pointcloud::VoxelGridFilter<_FeatureT> downsample(filter_option);
+                    /**
+                     * @todo 目前是直接提取一定范围的关键帧组合为定位地图，之后要改为，每个区域维护一个submap，
+                     *  直接提取这个区域的submap进行定位，这个submap也具备更新的能力 
+                     */
+                    // 遍历定位所需的所有点云标识名   将定位所需要的点云local map 提取出来 
+                    for (auto const& label : localize_registration_->GetUsedPointsName()) {   
+                        // 从数据库中查找 名字为 label 的点云 
+                        PointCloudPtr local_map(new pcl::PointCloud<_FeatureT>());
+                        if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, select_ind, label, local_map)) {
+                            work_mode_ = WorkMode::RELOCALIZATION;
+                            continue; 
+                        }
+                        // std::cout << "before filter size: " << local_map->size() << std::endl;
+                        downsample.Filter(local_map); 
+                        // std::cout << "after filter size: " << local_map->size() << std::endl;
+                        localize_registration_->SetInputSource(std::make_pair(label, local_map)); 
+                        submap[label] = local_map; 
+                        // SlamLib::time::TicToc tt;  
+                        IPC::Server::Instance().Publish("localize_map", local_map);   // 发布地图用于可视化    
+                        // tt.toc("Publish ");   // 1ms
+                    }
+                    tt.toc("build map ");
+                    tt.tic(); 
+                    // 匹配评估
+                    typename pcl::PointCloud<_FeatureT>::ConstPtr evaluate_local_map(
+                        new pcl::PointCloud<_FeatureT>());
+                    std::string checked_point_label = "filtered";    // 获取检验模块需要的点云标识名
+                    evaluate_local_map = submap[checked_point_label];  
+                    align_evaluator_.SetTargetPoints(evaluate_local_map);      // 0-15ms 
+                    need_rebuild_submap = false; 
+                    is_submap_new = true; 
+                } else {
+                    need_rebuild_submap = true;
                     work_mode_ = WorkMode::RELOCALIZATION;
                     continue;  
                 }
-                double t = tt.toc("localization ");
-                // 更为全面的评估定位的状态，环境的变化
-                std::cout << "----------------------评估--------------------- " << std::endl;
-                tt.tic(); 
-                // 匹配评估
-                typename pcl::PointCloud<_FeatureT>::ConstPtr evaluate_local_map(
-                    new pcl::PointCloud<_FeatureT>());
+            }
+
+            localize_registration_->SetInputTarget(points);
+            if (!localize_registration_->Solve(pose_in_map)) {
+                LOG(WARNING)<<SlamLib::color::RED<<"错误: 定位匹配无法收敛！转换到重定位模式...."
+                    <<SlamLib::color::RESET;
+                work_mode_ = WorkMode::RELOCALIZATION;
+                need_rebuild_submap = true;
+                continue;  
+            }
+            // 评估定位效果
+            // 传送到这里的点云 应该在前端数据处理环节就滤除了动态点云了，所以这里可以假设点云都是静态的
+            static int evaluate_interval = 0;
+            if (evaluate_interval == 0) {
+                std::cout << SlamLib::color::GREEN << "定位评估...." << std::endl;
                 std::string checked_point_label = "filtered";    // 获取检验模块需要的点云标识名
-                // 检查定位匹配阶段 是否已经构建了定位评估阶段所需要使用的地图 
-                if (loc_points.map_.find(checked_point_label) != loc_points.map_.end()) {
-                    evaluate_local_map = loc_points.map_[checked_point_label];  
-                } else {  
-                    // 没有所需要的地图数据则进行构建
-                    typename pcl::PointCloud<_FeatureT>::Ptr local_map(new pcl::PointCloud<_FeatureT>());
-                    if (!loop_detect_->ConstructLocalmapByTrajectoryNode(trajectory_, search_ind, 
-                                                                                                                                            checked_point_label, local_map)) {
-                        work_mode_ = WorkMode::RELOCALIZATION;
-                        continue; 
-                    }
-                    evaluate_local_map = local_map;
-                }
-                align_evaluator_.SetTargetPoints(evaluate_local_map);      // 0-15ms 
                 std::pair<double, double> res = align_evaluator_.AlignmentScore(points.at(checked_point_label), 
-                                                                                    pose_in_map.matrix().cast<float>(), 0.2, 0.3); // 0-10ms 
-                tt.toc("evaluate ");                                                                                                          
-                std::cout<<"score: "<<res.first<<std::endl;
-                std::cout<<"overlap_ratio: "<<res.second<<std::endl;
-                static double last_loc_record_time = -1;
-                static float last_loc_record_overlap = 0;  
+                                                                                    pose_in_map.matrix().cast<float>(), 0.3, 0.3); // 0-10ms                                                                                                   
+                std::cout<<"定位匹配得分: "<< res.first <<std::endl;
+                std::cout<<"重叠率: "<< res.second <<std::endl;
+                // 评估频率控制  
+                if (res.second > 0.9) {
+                    evaluate_interval = 2;
+                } else if (res.second > 0.8) {
+                    evaluate_interval = 1;
+                } else {
+                    evaluate_interval = 0;
+                }
                 // 得分大于1, 认为定位失败 
                 if (res.first > 1)  {  
                     // 进行重定位
+                    need_rebuild_submap = true;
                     work_mode_ = WorkMode::RELOCALIZATION;
                     #if (BACKEND_DEBUG == 1)
                         pcl::PointCloud<_FeatureT> input_transformed;
@@ -430,52 +447,37 @@ void LifeLongBackEndOptimization<_FeatureT>::localization() {
                     #endif
                     continue;  
                 }
-                if (enable_lifelong_) {
-                    // 如果得分很低 ， 认为定位很好，同时若重叠率也足够小，则认为环境发生了较大的变化   
-                    if (res.first <= 0.15 && res.second < 0.7) {
-                        double min_historical_keyframe_dis = std::sqrt(search_dis.front()); 
-                        // 相比于历史轨迹距离足够远就直接进行建图
-                        if (min_historical_keyframe_dis > 10) {
-                            // 转为纯建图模式
+                // 匹配质量很好，但是重叠率过低，有3种可能：
+                // 1、机器人的观测点云超过了定位的局部子图的边界，此时需要更新定位局部子图
+                // 2、更新定位子图后，如果依然重叠率过低，那么：
+                //        (1)、环境发生了大量变化，那么lifelong模式下需要对定位子图进行更新
+                //        (2)、机器人驶出了原地图覆盖范围内，此时lifelong模式下需要扩展建图
+                if (res.first <= 0.2 && res.second < 0.6) {
+                    need_rebuild_submap = true;
+                    if (is_submap_new) {
+                        if (enable_lifelong_) {
                             // 搜索最近历史结点的位姿 
                             Vertex nearest_vertex = 
                                 PoseGraphDataBase::GetInstance().GetVertexByTrajectoryLocalIndex(trajectory_, search_ind[0]);
                             Eigen::Isometry3d relpose = pose_in_map.inverse() * nearest_vertex.pose_;    // 与最近历史结点的想对位姿
-                            std::cout << "扩展建图，连接的轨迹：" << trajectory_ << ", 连接的结点id: " << nearest_vertex.id_
-                                << ", relpose: " << std::endl << relpose.matrix() << std::endl;
+                            // std::cout << "扩展建图，连接的轨迹：" << trajectory_ << ", 连接的结点id: " << nearest_vertex.id_
+                            //     << ", relpose: " << std::endl << relpose.matrix() << std::endl;
                             // 重新设置该关键帧的连接关系  与 约束 
                             keyframe.adjacent_id_ = nearest_vertex.id_;  
                             keyframe.between_constraint_ = relpose;      // 获取该关键帧与上一关键帧之间的相对约束  last<-curr       
                             work_mode_ = WorkMode::MAPPING;
                             this->trans_odom2map_ = pose_in_map * keyframe.odom_.inverse();  
                             IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
-                            continue; 
-                        } else {
-                            // 转为地图更新模式  
-                            std::cout << SlamLib::color::GREEN << "-----------------MAP UDAPATE!-----------------" 
-                                << SlamLib::color::RESET << std::endl;
-                            /**
-                             * @todo 阶段一：只更新定位地图 ，但是位姿图不更新
-                             *                  阶段二：更新定位地图，位姿图以及回环数据库也同步更新 
-                             */
+                            continue;  
                         }
-                    } 
-                    // 记录重叠率  
-                    if (keyframe.time_stamp_ - last_loc_record_time > 1) {
-                        last_loc_record_time = keyframe.time_stamp_;
-                        last_loc_record_overlap = res.second ;  
                     }
-                    // 发生下面情况则切换到建图模式 
-                    // 1、如果重叠率降低到阈值一下，且降低缓慢
-                    // 2、匹配得分较高
-                    // 3、最近历史关键帧的距离过远 > 10 m 
                 }
-                // 更新校正矩阵  
-                this->trans_odom2map_ = pose_in_map * keyframe.odom_.inverse();  
-                IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
             } else {
-                work_mode_ = WorkMode::RELOCALIZATION;
+                --evaluate_interval;
             }
+            // 更新校正矩阵  
+            this->trans_odom2map_ = pose_in_map * keyframe.odom_.inverse();  
+            IPC::Server::Instance().Publish("odom_to_map", this->trans_odom2map_);      // 发布坐标变换
         } else {
             this->keyframe_queue_sm_.unlock_shared();
             --interval;

@@ -21,15 +21,9 @@ template<typename _T>
 struct KeyFrameInfo {
     double time_stamps_;  
     std::deque<KeyFrame> new_keyframes_;
+    std::deque<Eigen::Isometry3d> localization_keyframe_pose_;
     std::vector<Vertex> vertex_database_; 
     std::vector<Edge> edge_database_; 
-};
-
-template<typename _T>
-struct LocalizationPointsInfo {
-    double time_stamps_;  
-    std::unordered_map<std::string, typename pcl::PointCloud<_T>::ConstPtr> scan_; 
-    std::unordered_map<std::string, typename pcl::PointCloud<_T>::ConstPtr> map_;
 };
 
 template<typename _FeatureT>

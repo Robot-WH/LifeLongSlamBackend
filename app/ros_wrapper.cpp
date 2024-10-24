@@ -245,6 +245,26 @@ visualization_msgs::MarkerArray createMarkerArray(lifelong_backend::KeyFrameInfo
     // std::cout<<"info.edge_database_.size(): "<<info.edge_database_.size()<<std::endl;
     // std::cout<<"info.new_keyframes_.size(): "<<info.new_keyframes_.size()<<std::endl;
     // 数量
+    if (!info.localization_keyframe_pose_.empty()) {
+        traj_marker.points.resize(info.localization_keyframe_pose_.size());
+        // 颜色
+        traj_marker.colors.resize(info.localization_keyframe_pose_.size());
+        // 新增位姿节点
+        for(int i=0; i<info.localization_keyframe_pose_.size(); i++) {
+            // 设置位置
+            Eigen::Vector3d pos = info.localization_keyframe_pose_[i].translation();
+            traj_marker.points[i].x = pos.x();
+            traj_marker.points[i].y = pos.y();
+            traj_marker.points[i].z = pos.z();
+            // 颜色
+            traj_marker.colors[i].r = 0.0;
+            traj_marker.colors[i].g = 1.0;
+            traj_marker.colors[i].b = 1.0;
+            traj_marker.colors[i].a = 1.0;
+        }    
+        return markers; 
+    }
+
     traj_marker.points.resize(info.vertex_database_.size() + 
                                                             info.new_keyframes_.size());
     // 颜色
@@ -425,7 +445,7 @@ void pubOdomToMap(const Eigen::Isometry3d& odom_to_map) {
     odom_to_map_msg.pose.pose.position.x = p[0];
     odom_to_map_msg.pose.pose.position.y = p[1];
     odom_to_map_msg.pose.pose.position.z = p[2];
-    std::cout << "pubOdomToMap, x: " << p[0] << ",y: " << p[1] << ",z: " << p[2] << "\n";
+    // std::cout << "pubOdomToMap, x: " << p[0] << ",y: " << p[1] << ",z: " << p[2] << "\n";
     // 构造四元数   
     odom_to_map_msg.pose.pose.orientation.w = quat.w();
     odom_to_map_msg.pose.pose.orientation.x = quat.x();
@@ -464,7 +484,6 @@ int main(int argc, char **argv) {
     ros::NodeHandle private_nh("~");
     InitComm(private_nh, nh);  
     InitSystem(nh);  
-    // std::thread processResult_thread(processResult);
     ros::spin();
     return 0;
 }
