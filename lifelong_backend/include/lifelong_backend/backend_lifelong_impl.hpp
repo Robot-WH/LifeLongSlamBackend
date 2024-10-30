@@ -21,7 +21,7 @@ LifeLongBackEndOptimization<_FeatureT>::LifeLongBackEndOptimization(std::string 
     std::string optimizer_type = yaml["optimizer"]["type"].as<std::string>();
 
     if (optimizer_type == "gtsam") {
-        pose_graph_optimizer_ = std::make_unique<GtsamGraphOptimizer>(); 
+        // pose_graph_optimizer_ = std::make_unique<GtsamGraphOptimizer>(); 
     } else if (optimizer_type == "g2o") {
         pose_graph_optimizer_ = std::make_unique<G2oGraphOptimizer>(); 
     } else if (optimizer_type == "ceres") {

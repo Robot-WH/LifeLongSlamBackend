@@ -28,38 +28,6 @@ public:
 
   virtual ~KeyFrame() {}
 
-  void Save(const std::string& directory) {
-    if (!boost::filesystem::is_directory(directory)) {
-      boost::filesystem::create_directory(directory);
-    }
-
-    std::ofstream ofs(directory + "/KeyFrameData/data_" + std::to_string(id_));
-    ofs << "stamp " << time_stamp_<< "\n";
-    ofs << "id " << id_ << "\n";
-    ofs << "odom\n";
-    ofs << odom_.matrix() << "\n";
-
-    if (utm_coord_) {
-      ofs << "utm_coord\n";
-      ofs << utm_coord_->transpose() << "\n";
-    }
-    if (floor_coeffs_) {
-      ofs << "floor_coeffs\n";
-      ofs << floor_coeffs_->transpose() << "\n";
-    }
-    if (acceleration_) {
-      ofs << "acceleration\n";
-      ofs << acceleration_->transpose() << "\n";
-    }
-    if (orientation_) {
-      ofs << "orientation\n";
-      ofs << orientation_->w() << " " << orientation_->x() << " " << orientation_->y() 
-        << " " << orientation_->z() << "\n";
-    }
-  }
-
-  bool Load(const std::string& directory) {
-  }
   // 关键帧的数据结构
   double time_stamp_ = 0.0;                                // timestamp
   int64_t id_ = -1;   // 对应点云文件  在文件夹中的标识    以及   节点

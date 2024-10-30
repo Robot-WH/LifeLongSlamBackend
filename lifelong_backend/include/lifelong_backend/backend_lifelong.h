@@ -12,7 +12,7 @@
 #include <boost/algorithm/string.hpp>
 #include "backend_base.hpp"
 #include "GraphOptimization/graph_optimization.h"
-#include "GraphOptimization/graph_optimization_gtsam.h"
+// #include "GraphOptimization/graph_optimization_gtsam.h"
 #include "GraphOptimization/graph_optimization_g2o.h"
 // #include "Common/data_manager.hpp"
 namespace lifelong_backend {

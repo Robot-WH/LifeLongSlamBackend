@@ -6,13 +6,13 @@
  * @Description:  长期建图定位后端  ros1 接口  
  * @Others: 
  */
-#include "ros_utils.hpp"
-#include "lifelong_backend/backend_lifelong.h"
-#include "lifelong_backend/InnerComm/InnerProcessComm.hpp"
-#include "lwio/keyframe_info.h"
 #include <deque>
 #include <mutex>
 #include <dirent.h>
+#include "ros_utils.hpp"
+#include "lifelong_backend/backend_lifelong.h"
+#include "lifelong_backend/InnerComm/InnerProcessComm.hpp"
+#include "lifelong_backend/keyframe_info.h"
 
 using PointT = pcl::PointXYZI;
 using PointCloudConstPtr = pcl::PointCloud<PointT>::ConstPtr;  
@@ -61,7 +61,7 @@ void InitSystem(ros::NodeHandle& n) {
     // 算法配置数据库路径
     config_path = RosReadParam<string>(n, "config_path");  
     backend_.reset(new lifelong_backend::LifeLongBackEndOptimization<PointT>(config_path));
-    database_path = RosReadParam<string>(n, "database_path");  
+    database_path = RosReadParam<string>(n, "database_path");
 }
 
 bool SaveDataService(lifelong_backend::SaveDataRequest& req, lifelong_backend::SaveDataResponse& res);
@@ -72,29 +72,13 @@ bool SetTrajService(lifelong_backend::SetTrajRequest& req, lifelong_backend::Set
 bool SetWorkMode(lifelong_backend::SetCommandRequest& req, lifelong_backend::SetCommandResponse& res);
 
 void pubMarkers(const lifelong_backend::KeyFrameInfo<PointT>& info);
-void keyframeCallback(const lwio::keyframe_info& info);
+void keyframeCallback(const lifelong_backend::keyframe_info& info);
 void getWorkSpaceCallback(const std_msgs::Bool& flag);
 void pubOdomToMap(const Eigen::Isometry3d& odom_to_map);
 void pubLocalizeMap(const pcl::PointCloud<PointT>::Ptr& map);     
 void pubGlobalMap(const pcl::PointCloud<PointT>::Ptr& map);
 
 void InitComm(ros::NodeHandle& private_nh, ros::NodeHandle& nh) {
-    // for (uint16_t i = 0; i < NUM_OF_LIDAR; i++)
-    // {
-    //     ros::Publisher pub = private_nh.advertise<sensor_msgs::PointCloud2>(pubLidarFiltered_topic[i], 10); 
-    //     pubLidarFiltered.push_back(pub);  
-    //     pub = private_nh.advertise<sensor_msgs::PointCloud2>(pubLidarSurf_topic[i], 10); 
-    //     pubLidarSurf.push_back(pub);  
-    //     pub = private_nh.advertise<sensor_msgs::PointCloud2>(pubLidarEdge_topic[i], 10); 
-    //     pubLidarEdge.push_back(pub);  
-
-    //     pub = private_nh.advertise<sensor_msgs::PointCloud2>(pubLocalMapFiltered_topic[i], 10); 
-    //     pubLocalMapFiltered.push_back(pub);  
-    //     pub = private_nh.advertise<sensor_msgs::PointCloud2>(pubLocalMapEdge_topic[i], 10); 
-    //     pubLocalMapEdge.push_back(pub);  
-    //     pub = private_nh.advertise<sensor_msgs::PointCloud2>(pubLocalMapSurf_topic[i], 10); 
-    //     pubLocalMapSurf.push_back(pub);  
-    // }
     markers_pub = private_nh.advertise<visualization_msgs::MarkerArray>("/graph_markers", 10);        // 可视化
     odom_to_map_pub = private_nh.advertise<nav_msgs::Odometry>("/odom_to_map", 10);   
     localizeMap_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/localize_map", 10);   
@@ -202,7 +186,7 @@ void getWorkSpaceCallback(const std_msgs::Bool& flag) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void keyframeCallback(const lwio::keyframe_info& info) {
+void keyframeCallback(const lifelong_backend::keyframe_info& info) {
     // std::cout << "keyframeCallback" << std::endl;
     SlamLib::CloudContainer<PointT> lidar_data;
     lidar_data.timestamp_start_ = info.filtered_pointcloud.header.stamp.toSec();
