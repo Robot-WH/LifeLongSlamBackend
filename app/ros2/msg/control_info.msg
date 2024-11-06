@@ -1,0 +1,1 @@
+std_msgs/Bool type
