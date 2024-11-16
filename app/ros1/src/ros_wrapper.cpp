@@ -9,10 +9,10 @@
 #include <deque>
 #include <mutex>
 #include <dirent.h>
+#include <lifelong_backend_package/keyframe_info.h>
 #include "ros_utils.hpp"
 #include "lifelong_backend/backend_lifelong.h"
 #include "lifelong_backend/InnerComm/InnerProcessComm.hpp"
-#include "lifelong_backend/keyframe_info.h"
 
 using PointT = pcl::PointXYZI;
 using PointCloudConstPtr = pcl::PointCloud<PointT>::ConstPtr;  
@@ -64,15 +64,15 @@ void InitSystem(ros::NodeHandle& n) {
     database_path = RosReadParam<string>(n, "database_path");
 }
 
-bool SaveDataService(lifelong_backend::SaveDataRequest& req, lifelong_backend::SaveDataResponse& res);
-bool SaveMapService(lifelong_backend::SaveMapRequest& req, lifelong_backend::SaveMapResponse& res);
-bool SetSpaceService(lifelong_backend::SetSpaceRequest& req, lifelong_backend::SetSpaceResponse& res);
-bool SaveTrajService(lifelong_backend::SaveTrajRequest& req, lifelong_backend::SaveTrajResponse& res);
-bool SetTrajService(lifelong_backend::SetTrajRequest& req, lifelong_backend::SetTrajResponse& res);
-bool SetWorkMode(lifelong_backend::SetCommandRequest& req, lifelong_backend::SetCommandResponse& res);
+bool SaveDataService(lifelong_backend_package::SaveDataRequest& req, lifelong_backend_package::SaveDataResponse& res);
+bool SaveMapService(lifelong_backend_package::SaveMapRequest& req, lifelong_backend_package::SaveMapResponse& res);
+bool SetSpaceService(lifelong_backend_package::SetSpaceRequest& req, lifelong_backend_package::SetSpaceResponse& res);
+bool SaveTrajService(lifelong_backend_package::SaveTrajRequest& req, lifelong_backend_package::SaveTrajResponse& res);
+bool SetTrajService(lifelong_backend_package::SetTrajRequest& req, lifelong_backend_package::SetTrajResponse& res);
+bool SetWorkMode(lifelong_backend_package::SetCommandRequest& req, lifelong_backend_package::SetCommandResponse& res);
 
 void pubMarkers(const lifelong_backend::KeyFrameInfo<PointT>& info);
-void keyframeCallback(const lifelong_backend::keyframe_info& info);
+void keyframeCallback(const lifelong_backend_package::keyframe_info& info);
 void getWorkSpaceCallback(const std_msgs::Bool& flag);
 void pubOdomToMap(const Eigen::Isometry3d& odom_to_map);
 void pubLocalizeMap(const pcl::PointCloud<PointT>::Ptr& map);     
@@ -83,7 +83,7 @@ void InitComm(ros::NodeHandle& private_nh, ros::NodeHandle& nh) {
     odom_to_map_pub = private_nh.advertise<nav_msgs::Odometry>("/odom_to_map", 10);   
     localizeMap_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/localize_map", 10);   
     globalMap_pub = private_nh.advertise<sensor_msgs::PointCloud2>("/global_map", 1);   
-    workspace_pub = nh.advertise<lifelong_backend::workspace_info>("/workspace", 10);   
+    workspace_pub = nh.advertise<lifelong_backend_package::workspace_info>("/workspace", 10);   
     save_data_server = private_nh.advertiseService("/SaveData", &SaveDataService);
     save_map_server = private_nh.advertiseService("/SaveMap", &SaveMapService);
     set_space_server = private_nh.advertiseService("/SetSpace", &SetSpaceService);
@@ -102,7 +102,7 @@ void InitComm(ros::NodeHandle& private_nh, ros::NodeHandle& nh) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool SaveDataService(lifelong_backend::SaveDataRequest& req, lifelong_backend::SaveDataResponse& res) {
+bool SaveDataService(lifelong_backend_package::SaveDataRequest& req, lifelong_backend_package::SaveDataResponse& res) {
     std::string directory = req.destination;
     res.success = false;
     backend_->SavePoseGraph();  
@@ -112,7 +112,7 @@ bool SaveDataService(lifelong_backend::SaveDataRequest& req, lifelong_backend::S
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool SaveMapService(lifelong_backend::SaveMapRequest& req, lifelong_backend::SaveMapResponse& res) {
+bool SaveMapService(lifelong_backend_package::SaveMapRequest& req, lifelong_backend_package::SaveMapResponse& res) {
     std::string directory = req.destination;
     res.success = false;
     // System->SaveGlobalMap(req.resolution, directory);  
@@ -122,27 +122,27 @@ bool SaveMapService(lifelong_backend::SaveMapRequest& req, lifelong_backend::Sav
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool SetSpaceService(lifelong_backend::SetSpaceRequest& req, lifelong_backend::SetSpaceResponse& res) {
+bool SetSpaceService(lifelong_backend_package::SetSpaceRequest& req, lifelong_backend_package::SetSpaceResponse& res) {
     // 加载space    返回内部轨迹的数量
     res.traj_id = backend_->Load(database_path + req.space_name);
     return true;  
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool SaveTrajService(lifelong_backend::SaveTrajRequest& req, lifelong_backend::SaveTrajResponse& res) {
+bool SaveTrajService(lifelong_backend_package::SaveTrajRequest& req, lifelong_backend_package::SaveTrajResponse& res) {
     backend_->SavePoseGraph();  
     res.traj_id = lifelong_backend::PoseGraphDataBase::GetInstance().GetTrajectoryIDList();  
     return true;  
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool SetTrajService(lifelong_backend::SetTrajRequest& req, lifelong_backend::SetTrajResponse& res) {
+bool SetTrajService(lifelong_backend_package::SetTrajRequest& req, lifelong_backend_package::SetTrajResponse& res) {
     res.success = backend_->SetTrajectory(req.traj_id); 
     return true;  
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-bool SetWorkMode(lifelong_backend::SetCommandRequest& req, lifelong_backend::SetCommandResponse& res) {
+bool SetWorkMode(lifelong_backend_package::SetCommandRequest& req, lifelong_backend_package::SetCommandResponse& res) {
     std::cout << "SetWorkMode" << std::endl;
     // 校验是否为设置模式命令
     res.success = 0; 
@@ -178,7 +178,7 @@ void getWorkSpaceCallback(const std_msgs::Bool& flag) {
         }
     }
 
-    lifelong_backend::workspace_info info;
+    lifelong_backend_package::workspace_info info;
     info.space_name = workspace;
     workspace_pub.publish(info);  
 
@@ -186,7 +186,7 @@ void getWorkSpaceCallback(const std_msgs::Bool& flag) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void keyframeCallback(const lifelong_backend::keyframe_info& info) {
+void keyframeCallback(const lifelong_backend_package::keyframe_info& info) {
     // std::cout << "keyframeCallback" << std::endl;
     SlamLib::CloudContainer<PointT> lidar_data;
     lidar_data.timestamp_start_ = info.filtered_pointcloud.header.stamp.toSec();
@@ -463,7 +463,7 @@ void pubGlobalMap(const pcl::PointCloud<PointT>::Ptr& map) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 int main(int argc, char **argv) {
-    ros::init(argc, argv, "lifelong_backend node");
+    ros::init(argc, argv, "lifelong_backend_package node");
     ros::NodeHandle nh;
     ros::NodeHandle private_nh("~");
     InitComm(private_nh, nh);  

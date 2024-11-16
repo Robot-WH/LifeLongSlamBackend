@@ -1,4 +1,4 @@
 <launch>
     <!--启动配置好的rviz-->
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find lifelong_backend)/rviz/system.rviz" />
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find lifelong_backend_package)/rviz/system.rviz" />
 </launch>

@@ -4,6 +4,6 @@
     <param name="database_path" value="/home/lwh/SlamDataBase/"/>
     
     <!-- <node name="nmea_topic_driver" pkg="nmea_navsat_driver" type="nmea_topic_driver" output="screen" /> -->    
-    <node name="backend_node" pkg="lifelong_backend" type="backend_node" output="screen" >
+    <node name="backend_node" pkg="lifelong_backend_package" type="backend_node" output="screen" >
     </node>
 </launch>

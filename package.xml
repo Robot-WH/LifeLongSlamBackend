@@ -1,13 +1,10 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>lifelong_backend</name>
+  <name>lifelong_backend_package</name>
   <version>0.0.0</version>
-  <description> lifelong backend package </description>
-
+  <description> lifelong backend software package </description>
   <maintainer email="wiwlwh@163.com">koide</maintainer>
-
   <license>BSD</license>
-
   <buildtool_depend condition="$ROS_VERSION == 1">catkin</buildtool_depend>
   <buildtool_depend condition="$ROS_VERSION == 2">ament_cmake_auto</buildtool_depend>
   
