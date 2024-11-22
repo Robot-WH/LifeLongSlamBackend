@@ -21,6 +21,7 @@ if($ENV{ROS_VERSION} EQUAL 1)
         geographic_msgs
         nmea_msgs
         nav_msgs
+        robot_msg
         message_generation
     )
     find_package(PCL 1.7 REQUIRED)
@@ -29,7 +30,6 @@ if($ENV{ROS_VERSION} EQUAL 1)
     add_message_files(
         DIRECTORY app/ros1/msg
         FILES
-        keyframe_info.msg
         control_info.msg
         trajectory_info.msg
         workspace_info.msg
@@ -49,10 +49,10 @@ if($ENV{ROS_VERSION} EQUAL 1)
 
     generate_messages(
         DEPENDENCIES
-        geometry_msgs
-        std_msgs
-        nav_msgs
-        sensor_msgs
+            geometry_msgs
+            std_msgs
+            nav_msgs
+            sensor_msgs
     )
 
     include_directories(

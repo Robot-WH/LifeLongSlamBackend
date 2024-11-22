@@ -9,7 +9,7 @@
 #include <deque>
 #include <mutex>
 #include <dirent.h>
-#include <lifelong_backend_package/keyframe_info.h>
+#include <robot_msg/KeyframeInfo.h>
 #include "ros_utils.hpp"
 #include "lifelong_backend/backend_lifelong.h"
 #include "lifelong_backend/InnerComm/InnerProcessComm.hpp"
@@ -72,7 +72,7 @@ bool SetTrajService(lifelong_backend_package::SetTrajRequest& req, lifelong_back
 bool SetWorkMode(lifelong_backend_package::SetCommandRequest& req, lifelong_backend_package::SetCommandResponse& res);
 
 void pubMarkers(const lifelong_backend::KeyFrameInfo<PointT>& info);
-void keyframeCallback(const lifelong_backend_package::keyframe_info& info);
+void keyframeCallback(const robot_msg::KeyframeInfo& info);
 void getWorkSpaceCallback(const std_msgs::Bool& flag);
 void pubOdomToMap(const Eigen::Isometry3d& odom_to_map);
 void pubLocalizeMap(const pcl::PointCloud<PointT>::Ptr& map);     
@@ -186,7 +186,7 @@ void getWorkSpaceCallback(const std_msgs::Bool& flag) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void keyframeCallback(const lifelong_backend_package::keyframe_info& info) {
+void keyframeCallback(const robot_msg::KeyframeInfo& info) {
     // std::cout << "keyframeCallback" << std::endl;
     SlamLib::CloudContainer<PointT> lidar_data;
     lidar_data.timestamp_start_ = info.filtered_pointcloud.header.stamp.toSec();
