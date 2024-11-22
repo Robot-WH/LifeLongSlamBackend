@@ -71,6 +71,8 @@ else()   # ros2
     find_package(rclcpp REQUIRED)
     find_package(rosidl_default_generators REQUIRED)
     find_package(nav_msgs REQUIRED)
+    find_package(std_msgs REQUIRED)
+    find_package(robot_msg REQUIRED)
     find_package(pcl_conversions REQUIRED)
     find_package(tf2 REQUIRED)
     find_package(tf2_geometry_msgs REQUIRED)
@@ -82,31 +84,13 @@ else()   # ros2
     find_package(Boost REQUIRED COMPONENTS thread)
     find_package(fmt REQUIRED)
 
-    # 用于基于定义的接口（如消息、服务和动作）生成源代码和头文件
-    # rosidl_generate_interfaces( keyframe_info_msg
-    #     "app/ros2/msg/KeyframeInfo.msg"
-    #     DEPENDENCIES nav_msgs sensor_msgs
-    # )
+    # message(FATAL_ERROR "std_msgs path: " ${std_msgs_INCLUDE_DIRS})
 
-    # Add the interface files to the list of files to be processed  
-    set(INTERFACE_FILES  
-        "app/ros2/msg/KeyframeInfo.msg"  # Make sure the path is correct relative to the CMakeLists.txt  
-    )  
-
-    # Generate interfaces for the specified files  
-    rosidl_generate_interfaces(  
-        my_interfaces  # This is a custom target name  
-        ${INTERFACE_FILES}  
-        DEPENDENCIES  
-            nav_msgs  # Dependency on nav_msgs for Odometry  
-            sensor_msgs  # Dependency on sensor_msgs for PointCloud2  
-            # Add any other dependencies here if needed  
-    )
-
+    
     set(dependencies
         rclcpp  
-        Boost 
         nav_msgs 
+        std_msgs
         tf2 
         tf2_geometry_msgs  
         tf2_ros 
@@ -115,28 +99,66 @@ else()   # ros2
         visualization_msgs
         cv_bridge
         pcl_conversions
+        robot_msg
     )
-    
-    include_directories(
-        app/ros2/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../build/src/LifelongBackend/rosidl_generator_cpp
-        # /code/robot_ws/build/src/LifelongBackend/rosidl_generator_cpp
-    )
+
 
     if(TARGET lifelong_backend)  
         message(STATUS "lib lifelong_backend exists.")  
     else()  
         message(FATAL_ERROR "lib lifelong_backend does not exist.")  
     endif()
+    
+    include_directories(
+        app/ros2/include
+    )
 
     add_executable(backend_node app/ros2/src/ros_wrapper.cpp)
-    ament_target_dependencies(backend_node 
+    ament_target_dependencies(backend_node
         ${dependencies}
     )
     target_link_libraries(backend_node
         lifelong_backend
         fmt
+        ${Boost_LIBRARIES}
     )
 
-    # ament_package()           #新加宏，安装项目，在CMakeLists.txt文件中的最后一个调用。
+    add_executable(test_sub_node app/ros2/src/test_sub.cpp)
+    ament_target_dependencies(test_sub_node
+        ${dependencies}
+    )
+    target_link_libraries(test_sub_node
+        fmt
+    )
+
+    add_executable(test2_sub_node app/ros2/src/test2_sub.cpp)
+    ament_target_dependencies(test2_sub_node
+        ${dependencies}
+    )
+    target_link_libraries(test2_sub_node
+        fmt
+    )
+
+    add_executable(test_pub_node app/ros2/src/test_pub.cpp)
+    ament_target_dependencies(test_pub_node
+        ${dependencies}
+    )
+    target_link_libraries(test_pub_node
+        fmt
+    )
+
+    install(
+        TARGETS
+            backend_node 
+            test_sub_node 
+            test2_sub_node 
+            test_pub_node 
+            lifelong_backend# 告诉ros2有这么个目标（可执行文件或者库）
+        # EXPORT export_ndt_2d
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION lib/${PROJECT_NAME}
+    )
+
+    ament_package()           #新加宏，安装项目，在CMakeLists.txt文件中的最后一个调用。
 endif()

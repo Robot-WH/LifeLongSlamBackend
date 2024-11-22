@@ -73,5 +73,28 @@ if($ENV{ROS_VERSION} EQUAL 1)
     )
 else()
     find_package(OpenCV 4.0 REQUIRED)
-    # find_package(slam_lib_3d REQUIRED)
+    find_package(slam_lib_3d REQUIRED)
+
+    # message(FATAL_ERROR ${slam_lib_3d_INCLUDE_DIRS})
+
+    target_include_directories(lifelong_backend PUBLIC 
+        include 
+        ${G2O_INCLUDE_DIR}
+        ${Boost_INCLUDE_DIRS}
+        ${OpenCV_INCLUDE_DIRS}
+        ${slam_lib_3d_INCLUDE_DIRS}
+    )
+
+    target_link_libraries(lifelong_backend PUBLIC
+        ${Boost_LIBRARIES}
+        ${EIGEN3_LIBRARIES} 
+        ${PCL_LIBRARIES} 
+        ${CERES_LIBRARIES}
+        ${G2O_LIBRARIES}
+        ${GLOG_LIBRARIES}
+        ${OpenCV_LIBS}
+        ${slam_lib_3d_LIBRARIES}
+        yaml-cpp
+        lifelong_backend_proto
+    )
 endif()
